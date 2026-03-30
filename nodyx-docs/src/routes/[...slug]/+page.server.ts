@@ -18,11 +18,13 @@ export async function load({ params }) {
 
   return {
     slug,
-    html:     doc.html,
-    headings: doc.headings,
-    title:    page?.title ?? doc.title,
-    docTitle: doc.title,
-    prev:     pn.prev,
-    next:     pn.next,
+    html:        doc.html,
+    headings:    doc.headings,
+    title:       page?.title ?? doc.title,
+    docTitle:    doc.title,
+    description: doc.description,
+    readingTime: doc.readingTime,
+    prev:        pn.prev,
+    next:        pn.next,
   }
 }

@@ -37,7 +37,47 @@
 
 <svelte:head>
   <title>{data.docTitle} — Nodyx Docs</title>
-  <meta name="description" content="Nodyx documentation — {data.title}" />
+  <meta name="description"        content={data.description} />
+  <link rel="canonical"           href="https://nodyx.dev/{data.slug}" />
+
+  <!-- Open Graph -->
+  <meta property="og:type"        content="article" />
+  <meta property="og:title"       content="{data.docTitle} — Nodyx Docs" />
+  <meta property="og:description" content={data.description} />
+  <meta property="og:url"         content="https://nodyx.dev/{data.slug}" />
+  <meta property="og:site_name"   content="Nodyx Docs" />
+  <meta property="og:image"       content="https://nodyx.dev/og-default.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+
+  <!-- Twitter/X card -->
+  <meta name="twitter:card"        content="summary_large_image" />
+  <meta name="twitter:title"       content="{data.docTitle} — Nodyx Docs" />
+  <meta name="twitter:description" content={data.description} />
+  <meta name="twitter:image"       content="https://nodyx.dev/og-default.png" />
+
+  <!-- JSON-LD: TechArticle + BreadcrumbList -->
+  {@html `<script type="application/ld+json">${JSON.stringify([
+    {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      "headline": data.docTitle,
+      "description": data.description,
+      "url": `https://nodyx.dev/${data.slug}`,
+      "inLanguage": "en",
+      "author": { "@type": "Organization", "name": "Nodyx", "url": "https://nodyx.org" },
+      "publisher": { "@type": "Organization", "name": "Nodyx", "url": "https://nodyx.dev" },
+      "isPartOf": { "@type": "WebSite", "name": "Nodyx Docs", "url": "https://nodyx.dev" }
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Docs", "item": "https://nodyx.dev" },
+        { "@type": "ListItem", "position": 2, "name": data.docTitle, "item": `https://nodyx.dev/${data.slug}` }
+      ]
+    }
+  ])}</script>`}
 </svelte:head>
 
 <div class="doc-layout">
@@ -70,6 +110,9 @@
     </aside>
   {/if}
 </div>
+
+<!-- Reading time -->
+<div class="reading-time" aria-label="Reading time">{data.readingTime}</div>
 
 <!-- Breadcrumb -->
 <nav class="breadcrumb" aria-label="Breadcrumb">
@@ -256,6 +299,14 @@
 }
 
 .edit-link a:hover { color: var(--accent); }
+
+/* Reading time */
+.reading-time {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+  margin-top: -0.5rem;
+}
 
 /* Responsive: hide TOC on smaller screens */
 @media (max-width: 1200px) {

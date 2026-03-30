@@ -137,11 +137,53 @@ export async function buildSearchIndex(pages: Array<{ slug: string; title: strin
 
 // ── Main render function ──────────────────────────────────────────────────────
 
+// ── Description extraction ────────────────────────────────────────────────────
+// First non-empty paragraph after the H1, stripped of markdown syntax
+
+export function extractDescription(raw: string): string {
+  const lines = raw.split('\n')
+  let pastH1 = false
+  let para = ''
+  for (const line of lines) {
+    if (!pastH1) {
+      if (/^#\s/.test(line)) pastH1 = true
+      continue
+    }
+    const stripped = line
+      .replace(/^#{1,6}\s+.*$/, '')           // strip headings
+      .replace(/\*\*|__|\*|_/g, '')           // strip bold/italic
+      .replace(/`[^`]*`/g, (m) => m.slice(1, -1)) // strip inline code
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // strip links
+      .replace(/^>\s+/, '')                    // strip blockquotes
+      .replace(/^:::.*$/, '')                  // strip callout markers
+      .trim()
+    if (!stripped) {
+      if (para) break  // blank line after a paragraph → stop
+      continue
+    }
+    para += (para ? ' ' : '') + stripped
+    if (para.length > 160) break
+  }
+  return para.slice(0, 160).trim() || 'Nodyx documentation'
+}
+
+// ── Reading time ───────────────────────────────────────────────────────────────
+// ~200 wpm, rounded to nearest 0.5min
+
+export function readingTime(raw: string): string {
+  const words = raw.replace(/```[\s\S]*?```/g, '').trim().split(/\s+/).length
+  const mins  = Math.round(words / 200 * 2) / 2
+  if (mins < 1) return '< 1 min read'
+  return `${mins} min read`
+}
+
 export interface DocResult {
-  html:      string
-  headings:  Heading[]
-  title:     string
-  raw:       string
+  html:        string
+  headings:    Heading[]
+  title:       string
+  description: string
+  readingTime: string
+  raw:         string
 }
 
 async function readDocFile(slug: string): Promise<string | null> {
@@ -165,5 +207,8 @@ export async function renderDoc(slug: string): Promise<DocResult | null> {
     ? titleMatch[1].replace(/[🚀🔒⚡🌐🛡️]/g, '').trim()
     : slug.toUpperCase()
 
-  return { html, headings, title, raw }
+  const description = extractDescription(raw)
+  const rt          = readingTime(raw)
+
+  return { html, headings, title, description, readingTime: rt, raw }
 }

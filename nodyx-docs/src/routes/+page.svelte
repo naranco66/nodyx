@@ -232,6 +232,43 @@
   ]
 </script>
 
+<svelte:head>
+  <title>Nodyx Docs — Self-hosted community platform</title>
+  <meta name="description"        content="Official documentation for Nodyx — the open-source, self-hosted community platform. Forum + real-time chat + P2P voice. One command install." />
+  <link rel="canonical"           href="https://nodyx.dev" />
+
+  <!-- Open Graph -->
+  <meta property="og:type"        content="website" />
+  <meta property="og:title"       content="Nodyx Docs — Self-hosted community platform" />
+  <meta property="og:description" content="Official documentation for Nodyx — the open-source, self-hosted community platform. Forum + real-time chat + P2P voice. One command install." />
+  <meta property="og:url"         content="https://nodyx.dev" />
+  <meta property="og:image"       content="https://nodyx.dev/og-default.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+
+  <!-- Twitter/X card -->
+  <meta name="twitter:card"        content="summary_large_image" />
+  <meta name="twitter:title"       content="Nodyx Docs — Self-hosted community platform" />
+  <meta name="twitter:description" content="Official documentation for Nodyx — open-source, self-hosted, P2P. Forum + Chat + Voice. One command install." />
+  <meta name="twitter:image"       content="https://nodyx.dev/og-default.png" />
+
+  <!-- JSON-LD: WebSite + SearchAction -->
+  {@html `<script type="application/ld+json">${JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "Nodyx Docs",
+    "url": "https://nodyx.dev",
+    "description": "Official documentation for Nodyx — the open-source, self-hosted community platform",
+    "inLanguage": "en",
+    "publisher": { "@type": "Organization", "name": "Nodyx", "url": "https://nodyx.org" },
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": { "@type": "EntryPoint", "urlTemplate": "https://nodyx.dev/search?q={search_term_string}" },
+      "query-input": "required name=search_term_string"
+    }
+  })}</script>`}
+</svelte:head>
+
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <!-- HERO                                                                     -->
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
