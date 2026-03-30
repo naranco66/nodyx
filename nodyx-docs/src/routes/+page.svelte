@@ -3,6 +3,7 @@
 
   let copied = $state(false)
   let canvasEl = $state<HTMLCanvasElement | null>(null)
+  let instanceCount = $state<number | null>(null)
 
   const INSTALL_CMD = 'curl -fsSL https://nodyx.org/install.sh | bash'
 
@@ -11,6 +12,17 @@
     copied = true
     setTimeout(() => { copied = false }, 2000)
   }
+
+  // ── Live instance count ────────────────────────────────────────────────────
+  onMount(async () => {
+    try {
+      const r = await fetch('https://nodyx.org/api/v1/directory/instances?limit=1')
+      if (r.ok) {
+        const d = await r.json()
+        instanceCount = d.total ?? (Array.isArray(d.instances) ? d.instances.length : null)
+      }
+    } catch { /* ignore — static fallback */ }
+  })
 
   // ── Animated node graph ────────────────────────────────────────────────────
   onMount(() => {
@@ -175,7 +187,7 @@
     {
       icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
       title: 'Forum & threads',
-      desc: 'Categories, subcategories, threaded replies, rich editor, reactions, polls — everything you need to build a structured community.',
+      desc: 'Categories, subcategories, threaded replies, rich editor, polls, pinned threads — flat, wide, professional by design.',
       color: '#3b82f6',
     },
     {
@@ -197,10 +209,10 @@
       color: '#f59e0b',
     },
     {
-      icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
-      title: 'Your data, your rules',
-      desc: 'Self-hosted on your own server. No analytics, no telemetry, no accounts on third-party platforms. Ever.',
-      color: '#10b981',
+      icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+      title: 'Living Profiles',
+      desc: 'Generative animated banners, reputation rings, activity heatmaps, XP levels and custom name effects. Identity, not just an avatar.',
+      color: '#a855f7',
     },
     {
       icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
@@ -220,7 +232,7 @@
     {
       n: '02',
       title: 'Name your community',
-      code: 'NEXUS_COMMUNITY_NAME="The Hive"\nNEXUS_COMMUNITY_SLUG="the-hive"',
+      code: 'NODYX_COMMUNITY_NAME="The Hive"\nNODYX_COMMUNITY_SLUG="the-hive"',
       desc: 'Set a handful of environment variables. Your instance, your name, your identity — no approval required.',
     },
     {
@@ -349,8 +361,18 @@
 <div class="stat-bar">
   <div class="stat-bar-inner">
     <div class="stat">
-      <span class="stat-val">v1.9</span>
+      <span class="stat-val">v1.9.5</span>
       <span class="stat-label">Latest stable</span>
+    </div>
+    <div class="stat-sep"></div>
+    <div class="stat">
+      <span class="stat-val">{instanceCount !== null ? instanceCount : '—'}</span>
+      <span class="stat-label">
+        {#if instanceCount !== null}
+          <span class="stat-live-dot" aria-hidden="true"></span>
+        {/if}
+        Instances live
+      </span>
     </div>
     <div class="stat-sep"></div>
     <div class="stat">
@@ -364,13 +386,8 @@
     </div>
     <div class="stat-sep"></div>
     <div class="stat">
-      <span class="stat-val">WebRTC</span>
-      <span class="stat-label">Native voice</span>
-    </div>
-    <div class="stat-sep"></div>
-    <div class="stat">
-      <span class="stat-val">Zero</span>
-      <span class="stat-label">External dependencies</span>
+      <span class="stat-val">AGPL-3.0</span>
+      <span class="stat-label">Free forever</span>
     </div>
   </div>
 </div>
@@ -444,6 +461,106 @@
       <a href="/install" class="cta-primary">Full install guide</a>
       <a href="/domain" class="cta-secondary">Domain setup</a>
     </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- LIVING PROFILE                                                            -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<section class="section section-alt">
+  <div class="section-inner lp-layout">
+
+    <!-- Left: text -->
+    <div class="lp-text">
+      <div class="section-label">LIVING PROFILES</div>
+      <h2 class="section-title" style="margin-bottom: 1rem;">Identity, not just an avatar.</h2>
+      <p class="lp-intro">
+        Profiles in Nodyx are alive. Every user gets a generative animated banner
+        that's unique to them, a reputation ring that grows with their activity,
+        and an activity heatmap that tells their story at a glance.
+      </p>
+      <ul class="lp-features">
+        <li>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+          <strong>Generative banner</strong> — procedural animation seeded from username, unique per user
+        </li>
+        <li>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+          <strong>Reputation rings</strong> — concentric SVG arcs tracking posts, replies, reactions
+        </li>
+        <li>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+          <strong>Activity heatmap</strong> — 12-week GitHub-style contribution grid
+        </li>
+        <li>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+          <strong>XP levels &amp; grades</strong> — sqrt-based progression, custom colors, animated name effects
+        </li>
+      </ul>
+    </div>
+
+    <!-- Right: CSS profile card mockup -->
+    <div class="lp-card-wrap" aria-hidden="true">
+      <div class="lp-card">
+        <!-- Generative banner animation -->
+        <div class="lp-banner">
+          <div class="lp-banner-anim"></div>
+        </div>
+
+        <!-- Avatar + rings -->
+        <div class="lp-avatar-area">
+          <div class="lp-ring lp-ring-outer"></div>
+          <div class="lp-ring lp-ring-mid"></div>
+          <div class="lp-ring lp-ring-inner"></div>
+          <div class="lp-avatar">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </div>
+        </div>
+
+        <!-- Username + grade -->
+        <div class="lp-identity">
+          <span class="lp-username">nekr0s</span>
+          <span class="lp-grade">Core Member</span>
+        </div>
+
+        <!-- XP bar -->
+        <div class="lp-xp-row">
+          <span class="lp-xp-label">Lv. 14</span>
+          <div class="lp-xp-track">
+            <div class="lp-xp-bar"></div>
+          </div>
+          <span class="lp-xp-label">Lv. 15</span>
+        </div>
+
+        <!-- Stats row -->
+        <div class="lp-stats">
+          <div class="lp-stat">
+            <span class="lp-stat-val">847</span>
+            <span class="lp-stat-lbl">Posts</span>
+          </div>
+          <div class="lp-stat-sep"></div>
+          <div class="lp-stat">
+            <span class="lp-stat-val">2.1k</span>
+            <span class="lp-stat-lbl">Replies</span>
+          </div>
+          <div class="lp-stat-sep"></div>
+          <div class="lp-stat">
+            <span class="lp-stat-val">94</span>
+            <span class="lp-stat-lbl">Merci</span>
+          </div>
+        </div>
+
+        <!-- Heatmap (12×7 grid) -->
+        <div class="lp-heatmap">
+          {#each { length: 84 } as _, i}
+            {@const intensity = Math.random()}
+            <div class="lp-cell" style="opacity: {0.07 + intensity * 0.85}; background: {intensity > 0.7 ? '#818cf8' : intensity > 0.4 ? '#6366f1' : '#3b3f6e'}"></div>
+          {/each}
+        </div>
+        <div class="lp-heatmap-label">Activity — last 12 weeks</div>
+      </div>
+    </div>
+
   </div>
 </section>
 
@@ -952,6 +1069,25 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.stat-live-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 6px #4ade80;
+  animation: pulse-dot 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .stat-sep {
@@ -1490,5 +1626,284 @@
   .footer-nav     { grid-template-columns: repeat(2, 1fr); }
   .footer-bottom  { padding-left: 1.25rem; padding-right: 1.25rem; }
   .footer-inner   { padding: 0 1.25rem 2rem; }
+  .lp-layout      { flex-direction: column; }
+  .lp-card-wrap   { justify-content: center; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* LIVING PROFILE SECTION                                                       */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+.lp-layout {
+  display: flex;
+  gap: 4rem;
+  align-items: center;
+}
+
+.lp-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.lp-intro {
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin-bottom: 1.5rem;
+}
+
+.lp-features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.lp-features li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.lp-features li svg {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  color: #6366f1;
+}
+
+.lp-features strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Card wrapper */
+.lp-card-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.lp-card {
+  width: 280px;
+  background: #0c0c12;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+/* Generative banner */
+.lp-banner {
+  height: 72px;
+  position: relative;
+  overflow: hidden;
+  background: #0a0a14;
+}
+
+.lp-banner-anim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    120deg,
+    #1a1040 0%,
+    #2d1b6e 20%,
+    #4c1d95 35%,
+    #0e3a5c 55%,
+    #1a1040 75%,
+    #3b0764 90%,
+    #1a1040 100%
+  );
+  background-size: 300% 100%;
+  animation: banner-shift 8s ease-in-out infinite alternate;
+  opacity: 0.9;
+}
+
+.lp-banner-anim::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.15) 2px,
+    rgba(0, 0, 0, 0.15) 3px
+  );
+  opacity: 0.4;
+}
+
+@keyframes banner-shift {
+  from { background-position: 0% 50%; }
+  to   { background-position: 100% 50%; }
+}
+
+/* Avatar + reputation rings */
+.lp-avatar-area {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 16px;
+}
+
+.lp-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+
+.lp-ring-outer {
+  inset: -4px;
+  border-color: rgba(99, 102, 241, 0.25);
+  animation: ring-pulse 3s ease-in-out infinite;
+}
+
+.lp-ring-mid {
+  inset: -1px;
+  border-color: rgba(99, 102, 241, 0.55);
+  border-width: 1.5px;
+}
+
+.lp-ring-inner {
+  inset: 0;
+  border-color: rgba(139, 92, 246, 0.8);
+  border-width: 1.5px;
+  animation: ring-pulse 3s ease-in-out infinite 1s;
+}
+
+@keyframes ring-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.lp-avatar {
+  position: absolute;
+  inset: 0;
+  background: #1a1040;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Identity */
+.lp-identity {
+  padding: 0.6rem 1rem 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.lp-username {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #a78bfa;
+  letter-spacing: -0.01em;
+}
+
+.lp-grade {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.25);
+}
+
+/* XP bar */
+.lp-xp-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1rem;
+}
+
+.lp-xp-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.2);
+  font-family: ui-monospace, monospace;
+  white-space: nowrap;
+}
+
+.lp-xp-track {
+  flex: 1;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.lp-xp-bar {
+  height: 100%;
+  width: 62%;
+  background: linear-gradient(90deg, #6366f1, #a855f7);
+  animation: xp-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes xp-pulse {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 0.6; }
+}
+
+/* Stats row */
+.lp-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.lp-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+}
+
+.lp-stat-val {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.8);
+  letter-spacing: -0.02em;
+}
+
+.lp-stat-lbl {
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.2);
+  font-weight: 600;
+}
+
+.lp-stat-sep {
+  width: 1px;
+  height: 1.5rem;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Activity heatmap */
+.lp-heatmap {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 2px;
+  padding: 0.6rem 1rem 0.25rem;
+}
+
+.lp-cell {
+  aspect-ratio: 1;
+}
+
+.lp-heatmap-label {
+  padding: 0 1rem 0.75rem;
+  font-size: 0.58rem;
+  color: rgba(255, 255, 255, 0.15);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
 }
 </style>
