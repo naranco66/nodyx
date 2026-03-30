@@ -12,6 +12,7 @@
 	import { resolveTheme, themeToVars } from '$lib/profileThemes';
 	import { buildNameStyle, buildAnimClass, ensureFontLoaded, GOOGLE_FONTS_URL } from '$lib/nameEffects';
 	import VoicePanel from '$lib/components/VoicePanel.svelte';
+	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import { voiceStore, voiceChannelMembersStore, voiceEventsStore } from '$lib/voice';
 
 	let { children, data }: { children: any; data: LayoutData } = $props();
@@ -318,7 +319,22 @@
 		e.preventDefault();
 		if (searchQ.trim()) { goto(`/search?q=${encodeURIComponent(searchQ.trim())}`); searchQ = ''; }
 	}
+
+	// ── Command Palette ────────────────────────────────────────────────────────
+	let paletteOpen = $state(false)
+
+	function handleGlobalKeydown(e: KeyboardEvent) {
+		// Ctrl+K or Cmd+K — open palette
+		if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+			e.preventDefault()
+			paletteOpen = true
+			return
+		}
+		// Close on Escape only if palette is open (palette handles its own Esc)
+	}
 </script>
+
+<svelte:window onkeydown={handleGlobalKeydown} />
 
 <svelte:head>
 	{#if communityLogo}
@@ -393,19 +409,23 @@
 			{/if}
 		</div>
 
-		<!-- Desktop: search bar -->
-		<form onsubmit={doSearch}
-		      class="hidden lg:flex items-center gap-2 px-3 h-7 w-56 transition-all"
-		      style="background: rgba(255,255,255,.04); border: 1px solid {searchFocused ? 'rgba(124,58,237,.5)' : 'rgba(255,255,255,.06)'}">
-			<svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color: #4b5563">
+		<!-- Desktop: command palette trigger -->
+		<button
+			type="button"
+			onclick={() => paletteOpen = true}
+			class="hidden lg:flex items-center gap-2 px-3 h-7 w-56 transition-colors"
+			style="background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.06); cursor: text; text-align: left;"
+			aria-label="Ouvrir la palette de commandes (Ctrl+K)"
+		>
+			<svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color: #3b3f52; flex-shrink:0">
 				<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
 			</svg>
-			<input type="text" placeholder="Rechercher…" bind:value={searchQ}
-			       onfocus={() => searchFocused = true} onblur={() => searchFocused = false}
-			       class="flex-1 bg-transparent text-xs outline-none min-w-0"
-			       style="color: #e2e8f0; font-family: 'Space Grotesk', sans-serif"
-			       autocomplete="off" />
-		</form>
+			<span class="flex-1 text-xs truncate" style="color: #3b3f52; font-family: 'Space Grotesk', sans-serif">Rechercher ou naviguer…</span>
+			<div style="display:flex;gap:2px;flex-shrink:0">
+				<kbd style="font-size:0.6rem;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);padding:0.05rem 0.28rem;color:rgba(255,255,255,.18);font-family:ui-monospace,monospace">Ctrl</kbd>
+				<kbd style="font-size:0.6rem;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);padding:0.05rem 0.28rem;color:rgba(255,255,255,.18);font-family:ui-monospace,monospace">K</kbd>
+			</div>
+		</button>
 
 		<!-- Right: actions (notifs + DMs + account) -->
 		<div class="flex items-center gap-1 shrink-0 ml-auto lg:ml-0">
@@ -1253,3 +1273,11 @@
 		{/each}
 	</div>
 {/if}
+
+<!-- ── Command Palette ────────────────────────────────────────────────────── -->
+<CommandPalette
+	open={paletteOpen}
+	user={user}
+	token={data.token ?? null}
+	onClose={() => paletteOpen = false}
+/>
