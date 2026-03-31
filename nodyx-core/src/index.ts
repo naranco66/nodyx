@@ -27,6 +27,7 @@ import taskRoutes            from './routes/tasks'
 import honeypotRoutes        from './routes/honeypot'
 import totpRoutes            from './routes/totp'
 import wikiRoutes            from './routes/wiki'
+import socialRoutes          from './routes/social'
 import { setIO }              from './socket/io'
 import { registerSocketIO } from './socket/index'
 import { runMigrations }    from './scripts/migrate'
@@ -140,6 +141,7 @@ server.register(taskRoutes,           { prefix: '/api/v1/tasks' })
 server.register(honeypotRoutes,       { prefix: '/api/v1' })
 server.register(totpRoutes,           { prefix: '/api/v1/auth/totp' })
 server.register(wikiRoutes,           { prefix: '/api/v1/wiki' })
+server.register(socialRoutes,         { prefix: '/api/v1/social' })
 
 const start = async () => {
   // Validate critical environment variables at startup.

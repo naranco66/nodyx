@@ -2,18 +2,32 @@ import { error } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 import { apiFetch } from '$lib/api'
 
-export const load: PageServerLoad = async ({ params, fetch }) => {
+export const load: PageServerLoad = async ({ params, fetch, parent }) => {
 	const { username } = params
+	const { user, token } = await parent()
 
-	const res = await apiFetch(fetch, `/users/${username}/profile`)
+	const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
 
-	if (res.status === 404) {
-		error(404, 'Utilisateur introuvable')
+	// Profile + initial posts in parallel
+	const [profileRes, postsRes] = await Promise.all([
+		apiFetch(fetch, `/users/${username}/profile`),
+		apiFetch(fetch, `/social/${username}/posts?limit=10`),
+	])
+
+	if (profileRes.status === 404) error(404, 'Utilisateur introuvable')
+	if (!profileRes.ok)            error(500, 'Erreur serveur')
+
+	const profile = await profileRes.json()
+	const posts   = postsRes.ok ? (await postsRes.json()).posts ?? [] : []
+
+	// Check if viewer follows this user (only if logged in and not own profile)
+	let isFollowing = false
+	if (user && token && user.username.toLowerCase() !== username.toLowerCase()) {
+		try {
+			const r = await apiFetch(fetch, `/social/${username}/is-following`, { headers })
+			if (r.ok) isFollowing = (await r.json()).following ?? false
+		} catch { /* ignore */ }
 	}
-	if (!res.ok) {
-		error(500, 'Erreur serveur')
-	}
 
-	const profile = await res.json()
-	return { profile }
+	return { profile, posts, isFollowing }
 }

@@ -333,6 +333,8 @@ export default async function userRoutes(app: FastifyInstance) {
          ad.name       AS badge_asset_name,
          (SELECT COUNT(*) FROM threads t WHERE t.author_id = u.id) AS thread_count,
          (SELECT COUNT(*) FROM posts po WHERE po.author_id = u.id) AS post_count,
+         (SELECT COUNT(*) FROM follows WHERE following_id = u.id) AS followers_count,
+         (SELECT COUNT(*) FROM follows WHERE follower_id  = u.id) AS following_count,
          g.name AS grade_name, g.color AS grade_color
        FROM users u
        LEFT JOIN user_profiles p ON p.user_id = u.id

@@ -7,6 +7,7 @@
 	import { page } from '$app/stores'
 	import { resolveTheme, themeToStyle } from '$lib/profileThemes'
 	import { socket } from '$lib/socket'
+	import { apiFetch } from '$lib/api'
 
 	let { data }: { data: PageData } = $props()
 	const profile = $derived(data.profile)
@@ -174,6 +175,81 @@
 		level >= 2  ? 'Novice' :
 		'Découvreur'
 	)
+
+	// ── Follow system ──────────────────────────────────────────────
+	const token = $derived(($page.data as any).token as string | null)
+
+	let following      = $state(data.isFollowing ?? false)
+	let followersCount = $state(Number(profile.followers_count ?? 0))
+	let followLoading  = $state(false)
+	const followingCount = $derived(Number(profile.following_count ?? 0))
+
+	async function toggleFollow() {
+		if (!me || followLoading) return
+		followLoading = true
+		const wasFollowing = following
+		following      = !wasFollowing
+		followersCount += wasFollowing ? -1 : 1
+		try {
+			const res = await apiFetch(fetch, `/social/${profile.username}/follow`, {
+				method:  wasFollowing ? 'DELETE' : 'POST',
+				headers: { Authorization: `Bearer ${token}` },
+			})
+			if (!res.ok) {
+				following      = wasFollowing
+				followersCount -= wasFollowing ? -1 : 1
+			}
+		} catch {
+			following      = wasFollowing
+			followersCount -= wasFollowing ? -1 : 1
+		} finally {
+			followLoading = false
+		}
+	}
+
+	// ── Posts tab ──────────────────────────────────────────────────
+	let activeTab    = $state<'about' | 'posts'>('about')
+	let userPosts    = $state<any[]>(data.posts ?? [])
+	let postsLoading = $state(false)
+	let postsHasMore = $state((data.posts?.length ?? 0) === 10)
+
+	function fmt(n: number): string {
+		return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+	}
+	function timeAgo(iso: string): string {
+		const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
+		if (s <    60) return `${s}s`
+		if (s <  3600) return `${Math.floor(s / 60)}min`
+		if (s < 86400) return `${Math.floor(s / 3600)}h`
+		return `${Math.floor(s / 86400)}j`
+	}
+
+	async function loadMorePosts() {
+		if (postsLoading || !postsHasMore) return
+		postsLoading = true
+		const last = userPosts[userPosts.length - 1]
+		try {
+			const res = await apiFetch(fetch, `/social/${profile.username}/posts?limit=10&before=${last.created_at}`)
+			if (res.ok) {
+				const more = (await res.json()).posts ?? []
+				userPosts    = [...userPosts, ...more]
+				postsHasMore = more.length === 10
+			}
+		} finally { postsLoading = false }
+	}
+
+	async function togglePostLike(post: any) {
+		const wasLiked = post.liked_by_me
+		const delta    = wasLiked ? -1 : 1
+		userPosts = userPosts.map(p => p.id === post.id
+			? { ...p, liked_by_me: !wasLiked, likes_count: (p.likes_count ?? 0) + delta }
+			: p
+		)
+		await apiFetch(fetch, `/social/status/${post.id}/like`, {
+			method:  wasLiked ? 'DELETE' : 'POST',
+			headers: { Authorization: `Bearer ${token}` },
+		})
+	}
 </script>
 
 <svelte:head>
@@ -307,6 +383,19 @@
 						{profile.status}
 					</p>
 				{/if}
+
+				<!-- Followers / following -->
+				<div class="flex items-center gap-3 mt-1.5">
+					<a href="/users/{profile.username}/followers" class="profile-follow-count">
+						<span class="profile-follow-count-num">{fmt(followersCount)}</span>
+						<span class="profile-follow-count-label">abonnés</span>
+					</a>
+					<span class="profile-follow-sep"></span>
+					<a href="/users/{profile.username}/following" class="profile-follow-count">
+						<span class="profile-follow-count-num">{fmt(followingCount)}</span>
+						<span class="profile-follow-count-label">abonnements</span>
+					</a>
+				</div>
 			</div>
 
 			<!-- Action button — inside max-w-6xl, aligned bottom-right -->
@@ -329,13 +418,37 @@
 						</a>
 					</div>
 				{:else if me}
-					<a href="/chat" class="profile-action-btn"
-					   style="background: color-mix(in srgb, var(--p-accent) 30%, rgba(0,0,0,0.5)); border-color: color-mix(in srgb, var(--p-accent) 50%, transparent)">
-						<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"/>
-						</svg>
-						Envoyer un message
-					</a>
+					<div class="flex items-center gap-2">
+						<button
+							onclick={toggleFollow}
+							disabled={followLoading}
+							class="profile-action-btn profile-follow-btn"
+							class:profile-follow-btn--following={following}
+							style={following
+								? 'background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.5); color: #818cf8'
+								: 'background: #6366f1; border-color: #6366f1; color: white'}
+						>
+							{#if followLoading}
+								<span class="profile-follow-dot"></span>
+							{:else if following}
+								<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+									<path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"/>
+								</svg>
+								Suivi
+							{:else}
+								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z"/>
+								</svg>
+								Suivre
+							{/if}
+						</button>
+						<a href="/chat" class="profile-action-btn">
+							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"/>
+							</svg>
+							Message
+						</a>
+					</div>
 				{/if}
 			</div>
 
@@ -516,7 +629,29 @@
 		</aside>
 
 		<!-- ─── MAIN CONTENT ─────────────────────────────────────────── -->
-		<main class="flex-1 min-w-0 space-y-4">
+		<main class="flex-1 min-w-0">
+
+			<!-- Tab switcher -->
+			<div class="profile-tabs">
+				<button
+					onclick={() => activeTab = 'about'}
+					class="profile-tab"
+					class:profile-tab--active={activeTab === 'about'}
+				>À propos</button>
+				<button
+					onclick={() => activeTab = 'posts'}
+					class="profile-tab"
+					class:profile-tab--active={activeTab === 'posts'}
+				>
+					Posts
+					{#if userPosts.length > 0}
+						<span class="profile-tab-badge">{fmt(Number(profile.post_count ?? 0) + Number(profile.thread_count ?? 0))}</span>
+					{/if}
+				</button>
+			</div>
+
+			{#if activeTab === 'about'}
+			<div class="space-y-4 mt-4">
 
 			<!-- Reputation Rings -->
 			<ReputationRings
@@ -624,6 +759,66 @@
 						</a>
 					{/if}
 				</div>
+			{/if}
+
+			</div><!-- end about tab -->
+			{/if}
+
+			<!-- ── Posts tab ────────────────────────────────────────── -->
+			{#if activeTab === 'posts'}
+			<div class="mt-4">
+				{#if userPosts.length === 0}
+					<div class="p-10 text-center"
+					     style="background: color-mix(in srgb, var(--p-card-bg) 60%, transparent); border: 1px solid var(--p-card-border)">
+						<p class="text-sm font-medium" style="color: var(--p-text-muted)">Aucun post pour l'instant.</p>
+						{#if isOwnProfile}
+							<a href="/feed" class="inline-block mt-3 text-sm font-semibold underline underline-offset-2"
+							   style="color: var(--p-accent)">Publier un post →</a>
+						{/if}
+					</div>
+				{:else}
+					{#each userPosts as post (post.id)}
+						<article class="profile-post-card">
+							<p class="profile-post-text">{post.content}</p>
+							<div class="profile-post-meta">
+								<time>{timeAgo(post.created_at)}</time>
+								<button
+									onclick={() => togglePostLike(post)}
+									class="profile-post-like"
+									class:profile-post-like--active={post.liked_by_me}
+								>
+									{#if post.liked_by_me}
+										<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+											<path d="M11.645 20.91l-.007-.003-.022-.012a15.247 15.247 0 01-.383-.218 25.18 25.18 0 01-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0112 5.052 5.5 5.5 0 0116.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 01-4.244 3.17 15.247 15.247 0 01-.383.219l-.022.012-.007.004-.003.001a.752.752 0 01-.704 0l-.003-.001z"/>
+										</svg>
+									{:else}
+										<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z"/>
+										</svg>
+									{/if}
+									{#if post.likes_count > 0}<span>{fmt(post.likes_count)}</span>{/if}
+								</button>
+								{#if post.replies_count > 0}
+									<span class="profile-post-replies">
+										<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3"/>
+										</svg>
+										{fmt(post.replies_count)}
+									</span>
+								{/if}
+							</div>
+						</article>
+					{/each}
+
+					{#if postsHasMore}
+						<button onclick={loadMorePosts} disabled={postsLoading}
+						        class="w-full py-3 text-sm font-medium transition-colors"
+						        style="color: var(--p-text-muted); border: 1px solid var(--p-card-border); background: var(--p-card-bg)">
+							{postsLoading ? 'Chargement…' : 'Voir plus'}
+						</button>
+					{/if}
+				{/if}
+			</div>
 			{/if}
 
 		</main>
@@ -764,5 +959,124 @@
 		background: rgba(0,0,0,0.7);
 		border-color: rgba(255,255,255,0.22);
 		color: #fff;
+	}
+
+	/* ── Follow counts ───────────────────────────────────────────── */
+	.profile-follow-count {
+		display: flex;
+		align-items: baseline;
+		gap: 0.3rem;
+		transition: opacity 0.15s;
+	}
+	.profile-follow-count:hover { opacity: 0.75; }
+	.profile-follow-count-num {
+		font-size: 0.875rem;
+		font-weight: 800;
+		color: rgba(255,255,255,0.85);
+		drop-shadow: 0 1px 2px rgba(0,0,0,0.5);
+	}
+	.profile-follow-count-label {
+		font-size: 0.7rem;
+		color: rgba(255,255,255,0.4);
+		font-weight: 500;
+	}
+	.profile-follow-sep {
+		width: 1px;
+		height: 12px;
+		background: rgba(255,255,255,0.15);
+	}
+
+	/* ── Follow button ───────────────────────────────────────────── */
+	.profile-follow-btn {
+		font-size: 0.75rem;
+		font-weight: 700;
+		letter-spacing: 0.2px;
+		transition: all 0.2s;
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.375rem 1rem;
+		border-width: 1px;
+		border-style: solid;
+	}
+	.profile-follow-btn:hover:not(:disabled) { filter: brightness(1.1); }
+	.profile-follow-dot {
+		width: 6px; height: 6px; border-radius: 50%;
+		background: currentColor; opacity: 0.6;
+		animation: follow-pulse 0.8s ease-in-out infinite;
+	}
+	@keyframes follow-pulse {
+		0%, 100% { transform: scale(0.8); opacity: 0.4; }
+		50%       { transform: scale(1.2); opacity: 1; }
+	}
+
+	/* ── Profile tabs ────────────────────────────────────────────── */
+	.profile-tabs {
+		display: flex;
+		border-bottom: 1px solid var(--p-card-border);
+		margin-top: 0;
+	}
+	.profile-tab {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.875rem 1.25rem;
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: var(--p-text-muted);
+		border-bottom: 2px solid transparent;
+		margin-bottom: -1px;
+		transition: color 0.15s, border-color 0.15s;
+		letter-spacing: 0.2px;
+	}
+	.profile-tab:hover { color: var(--p-text); }
+	.profile-tab--active {
+		color: var(--p-accent);
+		border-bottom-color: var(--p-accent);
+	}
+	.profile-tab-badge {
+		font-size: 0.65rem;
+		font-weight: 700;
+		padding: 0.1rem 0.375rem;
+		background: color-mix(in srgb, var(--p-accent) 15%, transparent);
+		color: var(--p-accent);
+		border: 1px solid color-mix(in srgb, var(--p-accent) 30%, transparent);
+	}
+
+	/* ── Profile post cards ──────────────────────────────────────── */
+	.profile-post-card {
+		padding: 1rem;
+		border: 1px solid var(--p-card-border);
+		border-top: none;
+		background: var(--p-card-bg);
+		transition: background 0.15s;
+	}
+	.profile-post-card:first-child { border-top: 1px solid var(--p-card-border); }
+	.profile-post-card:hover { background: color-mix(in srgb, var(--p-card-bg) 80%, var(--p-accent) 5%); }
+
+	.profile-post-text {
+		font-size: 0.9rem;
+		color: var(--p-text);
+		line-height: 1.65;
+		white-space: pre-wrap;
+		word-break: break-word;
+		margin-bottom: 0.625rem;
+	}
+	.profile-post-meta {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		font-size: 0.75rem;
+		color: var(--p-text-muted);
+	}
+	.profile-post-like {
+		display: flex; align-items: center; gap: 0.3rem;
+		color: var(--p-text-muted);
+		transition: color 0.15s;
+	}
+	.profile-post-like:hover { color: #f43f5e; }
+	.profile-post-like--active { color: #f43f5e; }
+	.profile-post-replies {
+		display: flex; align-items: center; gap: 0.3rem;
 	}
 </style>

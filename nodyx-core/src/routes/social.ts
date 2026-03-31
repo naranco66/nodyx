@@ -1,0 +1,363 @@
+import { FastifyInstance } from 'fastify'
+import { z } from 'zod'
+import { randomUUID } from 'crypto'
+import { mkdirSync } from 'fs'
+import { writeFile } from 'fs/promises'
+import path from 'path'
+import sharp from 'sharp'
+import { rateLimit } from '../middleware/rateLimit'
+import { requireAuth } from '../middleware/auth'
+import { validate } from '../middleware/validate'
+import { db } from '../config/database'
+import { io } from '../socket/io'
+
+const UPLOADS_DIR  = path.join(process.cwd(), 'uploads')
+const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function postSelect(viewerParam: string | null) {
+  return `
+    sp.id, sp.content, sp.media_url, sp.reply_to_id,
+    sp.likes_count, sp.replies_count, sp.created_at,
+    u.id AS author_id, u.username, p.display_name, p.avatar_url,
+    ${viewerParam
+      ? `EXISTS(SELECT 1 FROM status_likes sl WHERE sl.user_id = ${viewerParam} AND sl.post_id = sp.id)`
+      : 'false'} AS liked_by_me
+  `
+}
+
+export default async function socialRoutes(app: FastifyInstance) {
+
+  // ── Follow ────────────────────────────────────────────────────────────────
+
+  app.post('/:username/follow', { preHandler: [rateLimit, requireAuth] }, async (request, reply) => {
+    const { userId } = request.user!
+    const { username } = request.params as { username: string }
+
+    const target = await db.query('SELECT id FROM users WHERE LOWER(username) = LOWER($1)', [username])
+    if (!target.rows[0]) return reply.code(404).send({ error: 'Utilisateur introuvable' })
+
+    const targetId = target.rows[0].id
+    if (targetId === userId) return reply.code(400).send({ error: 'Impossible de se suivre soi-même' })
+
+    await db.query(
+      'INSERT INTO follows (follower_id, following_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [userId, targetId]
+    )
+
+    return reply.send({ ok: true })
+  })
+
+  app.delete('/:username/follow', { preHandler: [rateLimit, requireAuth] }, async (request, reply) => {
+    const { userId } = request.user!
+    const { username } = request.params as { username: string }
+
+    const target = await db.query('SELECT id FROM users WHERE LOWER(username) = LOWER($1)', [username])
+    if (!target.rows[0]) return reply.code(404).send({ error: 'Utilisateur introuvable' })
+
+    await db.query(
+      'DELETE FROM follows WHERE follower_id = $1 AND following_id = $2',
+      [userId, target.rows[0].id]
+    )
+
+    return reply.send({ ok: true })
+  })
+
+  // ── Followers / Following lists ───────────────────────────────────────────
+
+  // GET /:username/is-following — check if authenticated user follows :username
+  app.get('/:username/is-following', { preHandler: [rateLimit, requireAuth] }, async (request, reply) => {
+    const { userId } = request.user!
+    const { username } = request.params as { username: string }
+
+    const result = await db.query(`
+      SELECT EXISTS(
+        SELECT 1 FROM follows f
+        JOIN users u ON u.id = f.following_id
+        WHERE f.follower_id = $1 AND LOWER(u.username) = LOWER($2)
+      ) AS following
+    `, [userId, username])
+
+    return reply.send({ following: result.rows[0]?.following ?? false })
+  })
+
+  app.get('/:username/followers', { preHandler: [rateLimit] }, async (request, reply) => {
+    const { username } = request.params as { username: string }
+    const { offset = '0', limit = '20' } = request.query as { offset?: string; limit?: string }
+
+    const result = await db.query(`
+      SELECT u.id, u.username, p.display_name, p.avatar_url, f.created_at AS followed_at
+      FROM follows f
+      JOIN users u ON u.id = f.follower_id
+      LEFT JOIN user_profiles p ON p.user_id = u.id
+      WHERE f.following_id = (SELECT id FROM users WHERE LOWER(username) = LOWER($1))
+      ORDER BY f.created_at DESC
+      LIMIT $2 OFFSET $3
+    `, [username, Math.min(50, parseInt(limit)), parseInt(offset)])
+
+    return reply.send({ users: result.rows })
+  })
+
+  app.get('/:username/following', { preHandler: [rateLimit] }, async (request, reply) => {
+    const { username } = request.params as { username: string }
+    const { offset = '0', limit = '20' } = request.query as { offset?: string; limit?: string }
+
+    const result = await db.query(`
+      SELECT u.id, u.username, p.display_name, p.avatar_url, f.created_at AS followed_at
+      FROM follows f
+      JOIN users u ON u.id = f.following_id
+      LEFT JOIN user_profiles p ON p.user_id = u.id
+      WHERE f.follower_id = (SELECT id FROM users WHERE LOWER(username) = LOWER($1))
+      ORDER BY f.created_at DESC
+      LIMIT $2 OFFSET $3
+    `, [username, Math.min(50, parseInt(limit)), parseInt(offset)])
+
+    return reply.send({ users: result.rows })
+  })
+
+  // ── Status posts ──────────────────────────────────────────────────────────
+
+  const statusSchema = z.object({
+    content:     z.string().min(1).trim(),
+    reply_to_id: z.string().uuid().optional(),
+    media_url:   z.string().max(500).optional(),
+  })
+
+  app.post('/status', { preHandler: [rateLimit, requireAuth, validate({ body: statusSchema })] }, async (request, reply) => {
+    const { userId } = request.user!
+    const { content, reply_to_id, media_url } = request.body as z.infer<typeof statusSchema>
+
+    // Verify parent exists if replying
+    if (reply_to_id) {
+      const parent = await db.query('SELECT id FROM status_posts WHERE id = $1', [reply_to_id])
+      if (!parent.rows[0]) return reply.code(404).send({ error: 'Post parent introuvable' })
+    }
+
+    const ins = await db.query(`
+      INSERT INTO status_posts (author_id, content, reply_to_id, media_url)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id
+    `, [userId, content, reply_to_id ?? null, media_url ?? null])
+
+    if (reply_to_id) {
+      await db.query(
+        'UPDATE status_posts SET replies_count = replies_count + 1 WHERE id = $1',
+        [reply_to_id]
+      )
+    }
+
+    const post = await db.query(`
+      SELECT ${postSelect('$2')}
+      FROM status_posts sp
+      JOIN users u ON u.id = sp.author_id
+      LEFT JOIN user_profiles p ON p.user_id = u.id
+      WHERE sp.id = $1
+    `, [ins.rows[0].id, userId])
+
+    // Notify followers in real-time
+    io?.to(`user:${userId}`).emit('feed:new', post.rows[0])
+
+    return reply.code(201).send(post.rows[0])
+  })
+
+  app.delete('/status/:id', { preHandler: [rateLimit, requireAuth] }, async (request, reply) => {
+    const { userId } = request.user!
+    const { id } = request.params as { id: string }
+
+    const del = await db.query(`
+      DELETE FROM status_posts WHERE id = $1 AND author_id = $2
+      RETURNING id, reply_to_id
+    `, [id, userId])
+
+    if (!del.rows[0]) return reply.code(404).send({ error: 'Post introuvable ou non autorisé' })
+
+    if (del.rows[0].reply_to_id) {
+      await db.query(
+        'UPDATE status_posts SET replies_count = GREATEST(0, replies_count - 1) WHERE id = $1',
+        [del.rows[0].reply_to_id]
+      )
+    }
+
+    return reply.send({ ok: true })
+  })
+
+  // ── Likes ─────────────────────────────────────────────────────────────────
+
+  app.post('/status/:id/like', { preHandler: [rateLimit, requireAuth] }, async (request, reply) => {
+    const { userId } = request.user!
+    const { id } = request.params as { id: string }
+
+    const ins = await db.query(`
+      INSERT INTO status_likes (user_id, post_id) VALUES ($1, $2)
+      ON CONFLICT DO NOTHING RETURNING post_id
+    `, [userId, id])
+
+    if (!ins.rows[0]) return reply.send({ ok: true }) // already liked
+
+    const result = await db.query(
+      'UPDATE status_posts SET likes_count = likes_count + 1 WHERE id = $1 RETURNING likes_count',
+      [id]
+    )
+
+    return reply.send({ ok: true, likes_count: result.rows[0]?.likes_count })
+  })
+
+  app.delete('/status/:id/like', { preHandler: [rateLimit, requireAuth] }, async (request, reply) => {
+    const { userId } = request.user!
+    const { id } = request.params as { id: string }
+
+    const del = await db.query(
+      'DELETE FROM status_likes WHERE user_id = $1 AND post_id = $2 RETURNING post_id',
+      [userId, id]
+    )
+
+    if (del.rows[0]) {
+      await db.query(
+        'UPDATE status_posts SET likes_count = GREATEST(0, likes_count - 1) WHERE id = $1',
+        [id]
+      )
+    }
+
+    return reply.send({ ok: true })
+  })
+
+  // ── Feed & user posts ─────────────────────────────────────────────────────
+
+  // GET /feed — personalized timeline (posts from followed users + self)
+  app.get('/feed', { preHandler: [rateLimit, requireAuth] }, async (request, reply) => {
+    const { userId } = request.user!
+    const { before, limit = '20' } = request.query as { before?: string; limit?: string }
+
+    const lim    = Math.min(50, parseInt(limit))
+    const params: unknown[] = [userId, lim]
+    let   cursor = ''
+
+    if (before) {
+      params.push(before)
+      cursor = `AND sp.created_at < $${params.length}`
+    }
+
+    const result = await db.query(`
+      SELECT ${postSelect('$1')}
+      FROM status_posts sp
+      JOIN users u ON u.id = sp.author_id
+      LEFT JOIN user_profiles p ON p.user_id = u.id
+      WHERE sp.reply_to_id IS NULL
+        AND (
+          sp.author_id = $1
+          OR sp.author_id IN (SELECT following_id FROM follows WHERE follower_id = $1)
+        )
+        ${cursor}
+      ORDER BY sp.created_at DESC
+      LIMIT $2
+    `, params)
+
+    return reply.send({ posts: result.rows })
+  })
+
+  // GET /:username/posts — public posts of a given user
+  app.get('/:username/posts', { preHandler: [rateLimit] }, async (request, reply) => {
+    const { username } = request.params as { username: string }
+    const { before, limit = '20' } = request.query as { before?: string; limit?: string }
+    // Best-effort viewer ID (no auth required)
+    const viewerId = (request as any).user?.userId ?? null
+
+    const lim    = Math.min(50, parseInt(limit))
+    const params: unknown[] = [username, lim]
+    let   cursor = ''
+
+    if (before) {
+      params.push(before)
+      cursor = `AND sp.created_at < $${params.length}`
+    }
+
+    // Re-build postSelect with concrete param index
+    const likedExpr = viewerId
+      ? `EXISTS(SELECT 1 FROM status_likes sl WHERE sl.user_id = '${viewerId}' AND sl.post_id = sp.id)`
+      : 'false'
+
+    const result = await db.query(`
+      SELECT
+        sp.id, sp.content, sp.media_url, sp.reply_to_id,
+        sp.likes_count, sp.replies_count, sp.created_at,
+        u.id AS author_id, u.username, p.display_name, p.avatar_url,
+        ${likedExpr} AS liked_by_me
+      FROM status_posts sp
+      JOIN users u ON u.id = sp.author_id
+      LEFT JOIN user_profiles p ON p.user_id = u.id
+      WHERE LOWER(u.username) = LOWER($1) AND sp.reply_to_id IS NULL
+      ${cursor}
+      ORDER BY sp.created_at DESC
+      LIMIT $2
+    `, params)
+
+    return reply.send({ posts: result.rows })
+  })
+
+  // GET /status/:id — single post with replies
+  app.get('/status/:id', { preHandler: [rateLimit] }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const viewerId = (request as any).user?.userId ?? null
+
+    const likedExpr = viewerId
+      ? `EXISTS(SELECT 1 FROM status_likes sl WHERE sl.user_id = '${viewerId}' AND sl.post_id = sp.id)`
+      : 'false'
+
+    const postRes = await db.query(`
+      SELECT
+        sp.id, sp.content, sp.media_url, sp.reply_to_id,
+        sp.likes_count, sp.replies_count, sp.created_at,
+        u.id AS author_id, u.username, p.display_name, p.avatar_url,
+        ${likedExpr} AS liked_by_me
+      FROM status_posts sp
+      JOIN users u ON u.id = sp.author_id
+      LEFT JOIN user_profiles p ON p.user_id = u.id
+      WHERE sp.id = $1
+    `, [id])
+
+    if (!postRes.rows[0]) return reply.code(404).send({ error: 'Post introuvable' })
+
+    const repliesRes = await db.query(`
+      SELECT
+        sp.id, sp.content, sp.media_url, sp.reply_to_id,
+        sp.likes_count, sp.replies_count, sp.created_at,
+        u.id AS author_id, u.username, p.display_name, p.avatar_url,
+        ${likedExpr} AS liked_by_me
+      FROM status_posts sp
+      JOIN users u ON u.id = sp.author_id
+      LEFT JOIN user_profiles p ON p.user_id = u.id
+      WHERE sp.reply_to_id = $1
+      ORDER BY sp.created_at ASC
+      LIMIT 50
+    `, [id])
+
+    return reply.send({ post: postRes.rows[0], replies: repliesRes.rows })
+  })
+
+  // ── Media upload for posts ────────────────────────────────────────────────
+
+  app.post('/upload', { preHandler: [rateLimit, requireAuth] }, async (request, reply) => {
+    const data = await request.file()
+    if (!data) return reply.code(400).send({ error: 'Aucun fichier reçu' })
+    if (!ALLOWED_MIME.includes(data.mimetype)) {
+      return reply.code(400).send({ error: 'Format non supporté (jpeg, png, webp, gif)' })
+    }
+
+    const buf = await data.toBuffer()
+    if (buf.length > 8 * 1024 * 1024) return reply.code(400).send({ error: 'Fichier trop lourd (max 8 Mo)' })
+
+    const isGif = data.mimetype === 'image/gif'
+    const ext   = isGif ? 'gif' : 'webp'
+    const fname = `${randomUUID()}.${ext}`
+    const dir   = path.join(UPLOADS_DIR, 'posts')
+    mkdirSync(dir, { recursive: true })
+
+    const final = isGif
+      ? buf
+      : await sharp(buf).resize(1200, 1200, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 85 }).toBuffer()
+
+    await writeFile(path.join(dir, fname), final)
+    return reply.send({ url: `/uploads/posts/${fname}` })
+  })
+}

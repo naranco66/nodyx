@@ -116,8 +116,13 @@
 		}
 	})
 
-	// ── OG image URL ───────────────────────────────────────────────────────────
-	const ogImageUrl = $derived(`${origin}/users/${profile.username}/card.png`)
+	// ── OG image URL — cache-buster derived from avatar UUID so Discord re-fetches on avatar change ──
+	const avatarHash = $derived(
+		profile.avatar_url
+			? profile.avatar_url.split('/').pop()?.split('.')[0]?.slice(0, 8) ?? '0'
+			: '0'
+	)
+	const ogImageUrl = $derived(`${origin}/users/${profile.username}/card.png?v=${avatarHash}`)
 	const cardUrl    = $derived(`${origin}/users/${profile.username}/card`)
 	const profileUrl = $derived(`${origin}/users/${profile.username}`)
 </script>

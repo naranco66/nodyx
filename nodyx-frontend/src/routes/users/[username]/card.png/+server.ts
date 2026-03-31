@@ -3,7 +3,11 @@ import { apiFetch } from '$lib/api'
 import satori from 'satori'
 import { Resvg } from '@resvg/resvg-js'
 import { error } from '@sveltejs/kit'
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync } from 'fs'
+import path from 'path'
+
+// Uploads are stored in nodyx-core — read directly from disk to avoid HTTP overhead
+const UPLOADS_DIR = '/var/www/nexus/nodyx-core/uploads'
 
 // Load system fonts once at module level (DejaVu — always available on Ubuntu)
 const fontRegular = readFileSync('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf')
@@ -72,19 +76,28 @@ export const GET: RequestHandler = async ({ params, fetch }) => {
 	const c1  = `hsl(${hue}, 65%, 30%)`
 	const c2  = `hsl(${(hue + 60) % 360}, 55%, 25%)`
 
-	// Fetch avatar as data URL — field is avatar_url (absolute URL)
+	// Load avatar directly from disk — bypasses all HTTP/CORS/Cloudflare issues
 	let avatarDataUrl: string | null = null
 	const rawAvatar = profile.avatar_url ?? profile.avatar ?? null
 	if (rawAvatar) {
 		try {
-			const avatarUrl = rawAvatar.startsWith('http')
-				? rawAvatar
-				: `http://127.0.0.1:5173${rawAvatar}`
-			const r = await fetch(avatarUrl)
-			if (r.ok) {
-				const buf = await r.arrayBuffer()
-				const b64 = Buffer.from(buf).toString('base64')
-				const ct  = r.headers.get('content-type') ?? 'image/jpeg'
+			// Extract relative path from either absolute URL or relative path
+			let uploadPath: string
+			if (rawAvatar.startsWith('http')) {
+				uploadPath = new URL(rawAvatar).pathname // e.g. /uploads/avatars/uuid.png
+			} else {
+				uploadPath = rawAvatar // e.g. /uploads/avatars/uuid.png
+			}
+			// Strip leading /uploads/ to get path relative to UPLOADS_DIR
+			const relPath  = uploadPath.replace(/^\/uploads\//, '')
+			const filePath = path.join(UPLOADS_DIR, relPath)
+			if (existsSync(filePath)) {
+				const buf = readFileSync(filePath)
+				const b64 = buf.toString('base64')
+				// Detect MIME from extension
+				const ext = path.extname(filePath).toLowerCase()
+				const mimeMap: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }
+				const ct  = mimeMap[ext] ?? 'image/jpeg'
 				avatarDataUrl = `data:${ct};base64,${b64}`
 			}
 		} catch { /* ignore */ }

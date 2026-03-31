@@ -80,6 +80,16 @@
   ])}</script>`}
 </svelte:head>
 
+<!-- Breadcrumb -->
+<nav class="breadcrumb" aria-label="Breadcrumb">
+  <a href="/">Docs</a>
+  <span aria-hidden="true">/</span>
+  <span aria-current="page">{data.title}</span>
+</nav>
+
+<!-- Reading time -->
+<div class="reading-time" aria-label="Reading time">{data.readingTime}</div>
+
 <div class="doc-layout">
   <!-- Main content -->
   <article class="prose">
@@ -110,16 +120,6 @@
     </aside>
   {/if}
 </div>
-
-<!-- Reading time -->
-<div class="reading-time" aria-label="Reading time">{data.readingTime}</div>
-
-<!-- Breadcrumb -->
-<nav class="breadcrumb" aria-label="Breadcrumb">
-  <a href="/">Docs</a>
-  <span aria-hidden="true">/</span>
-  <span aria-current="page">{data.title}</span>
-</nav>
 
 <!-- Prev / Next navigation -->
 {#if data.prev || data.next}

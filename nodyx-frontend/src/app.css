@@ -257,7 +257,9 @@
 
 /* ── Mise en page 2 colonnes ──────────────────────────────────────────────── */
 .nodyx-prose .nexus-two-cols,
-.nodyx-content .tiptap .nexus-two-cols {
+.nodyx-prose .nodyx-two-cols,
+.nodyx-content .tiptap .nexus-two-cols,
+.nodyx-content .tiptap .nodyx-two-cols {
     display: grid !important;
     grid-template-columns: 1fr 1fr !important;
     gap: 1rem;
@@ -265,9 +267,11 @@
     align-items: start;
 }
 .nodyx-prose .nexus-col,
-.nodyx-content .tiptap .nexus-col {
+.nodyx-prose .nodyx-col,
+.nodyx-content .tiptap .nexus-col,
+.nodyx-content .tiptap .nodyx-col {
     display: block !important;
-    min-width: 0; /* évite l'overflow dans la grille */
+    min-width: 0;
     border-radius: 0.5rem;
     border: 1px solid rgb(55 65 81 / 0.5);
     background-color: rgb(31 41 55 / 0.2);
@@ -276,7 +280,9 @@
 }
 /* iframes dans une colonne : pas d'aspect-ratio forcé */
 .nodyx-prose .nexus-col iframe,
-.nodyx-content .tiptap .nexus-col iframe {
+.nodyx-prose .nodyx-col iframe,
+.nodyx-content .tiptap .nexus-col iframe,
+.nodyx-content .tiptap .nodyx-col iframe {
     aspect-ratio: 16 / 9;
     height: auto;
 }
