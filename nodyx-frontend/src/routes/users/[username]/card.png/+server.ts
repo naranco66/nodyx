@@ -72,11 +72,14 @@ export const GET: RequestHandler = async ({ params, fetch }) => {
 	const c1  = `hsl(${hue}, 65%, 30%)`
 	const c2  = `hsl(${(hue + 60) % 360}, 55%, 25%)`
 
-	// Fetch avatar as data URL
+	// Fetch avatar as data URL — resolve relative URLs against the local frontend
 	let avatarDataUrl: string | null = null
 	if (profile.avatar) {
 		try {
-			const r = await fetch(profile.avatar)
+			const avatarUrl = profile.avatar.startsWith('http')
+				? profile.avatar
+				: `http://127.0.0.1:5173${profile.avatar}`
+			const r = await fetch(avatarUrl)
 			if (r.ok) {
 				const buf = await r.arrayBuffer()
 				const b64 = Buffer.from(buf).toString('base64')

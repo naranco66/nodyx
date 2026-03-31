@@ -280,7 +280,7 @@
 
 		<div class="footer-actions">
 			<!-- View full profile -->
-			<a href={profileUrl} class="btn-ghost">
+			<a href={profileUrl} target="_blank" rel="noopener noreferrer" class="btn-ghost">
 				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 					<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
 					<circle cx="12" cy="7" r="4"/>
