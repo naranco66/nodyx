@@ -5,6 +5,9 @@
     import { PUBLIC_API_URL, PUBLIC_SIGNET_URL } from '$env/static/public';
     import { tick } from 'svelte';
 
+    // ── Navigation ────────────────────────────────────────────────────────────
+    let activeSection = $state('network')
+
     // ── Nodyx Signet ──────────────────────────────────────────────────────────
     type SignetDevice = { id: string; label: string; created_at: string; last_used_at: string | null }
 
@@ -49,7 +52,6 @@
                 signetToken = j.token
                 signetTokenExpiry = j.expiresAt
                 signetQrLink = `${PUBLIC_SIGNET_URL}/setup?hub=${encodeURIComponent(PUBLIC_API_URL)}&token=${encodeURIComponent(j.token)}`
-                // Génère le QR code après le prochain tick (canvas doit être dans le DOM)
                 await tick()
                 if (signetQrCanvas) {
                     const QRCode = (await import('qrcode')).default
@@ -178,7 +180,6 @@
     let linkedSlugs = $state<string[]>([]);
     $effect(() => { linkedSlugs = user?.linked_instances ?? [] });
 
-    // Toutes les instances du directory (pour validation + noms/logos)
     const directoryInstances = $derived($page.data.directoryInstances as Array<{
         slug: string; name: string; url: string; logo_url: string | null;
     }> ?? []);
@@ -197,7 +198,6 @@
             slugError = 'Instance introuvable dans l\'annuaire';
             return;
         }
-
         slugLoading = true;
         try {
             const res = await fetch(`${PUBLIC_API_URL}/api/v1/users/me/linked-instances`, {
@@ -239,13 +239,11 @@
         pushSupported = 'serviceWorker' in navigator && 'PushManager' in window
         if (!pushSupported) return
 
-        // Vérifier si déjà abonné
         navigator.serviceWorker.ready.then(async reg => {
             const sub = await reg.pushManager.getSubscription()
             pushEnabled = !!sub
         })
 
-        // Charger la clé VAPID publique
         fetch('/api/v1/notifications/vapid-public-key')
             .then(r => r.ok ? r.json() : null)
             .then(j => { if (j?.publicKey) vapidPublicKey = j.publicKey })
@@ -270,7 +268,6 @@
             const existing = await reg.pushManager.getSubscription()
 
             if (pushEnabled && existing) {
-                // Désabonnement
                 await existing.unsubscribe()
                 await fetch('/api/v1/notifications/subscribe', {
                     method:  'DELETE',
@@ -279,7 +276,6 @@
                 })
                 pushEnabled = false
             } else {
-                // Abonnement
                 if (!vapidPublicKey) { pushError = 'Push non configuré sur ce serveur'; return }
                 const perm = await Notification.requestPermission()
                 if (perm !== 'granted') { pushError = 'Permission refusée par le navigateur'; return }
@@ -308,200 +304,385 @@
     }
 </script>
 
-<div class="min-h-screen bg-[#050505] text-white p-8">
-    <div class="max-w-2xl mx-auto space-y-12">
-        <header>
-            <h1 class="text-5xl font-black italic uppercase tracking-tighter mb-2">Settings</h1>
-            <div class="h-1 w-20 bg-indigo-600"></div>
-        </header>
+<!-- ══════════════════════════════════════════════════════════════════════════
+     SETTINGS — Layout principal
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div class="settings-root">
 
-        <section>
-            <h2 class="text-sm font-bold text-gray-500 uppercase tracking-[0.2em] mb-6">Infrastructure & Réseau</h2>
-            <NetworkDoctor />
-        </section>
+    <!-- ── Sidebar navigation ──────────────────────────────────────────────── -->
+    <aside class="settings-sidebar">
 
-        <!-- ── Notifications Push ────────────────────────────────────────────── -->
-        {#if pushSupported && $page.data.user}
-        <section>
-            <h2 class="text-sm font-bold text-gray-500 uppercase tracking-[0.2em] mb-2">Notifications Push</h2>
-            <p class="text-xs text-gray-600 mb-6">
-                Recevez des notifications même lorsque l'onglet est fermé — mentions, messages privés, réponses.
-            </p>
-            <div class="flex items-center gap-4">
-                <button
-                    onclick={togglePush}
-                    disabled={pushLoading || !vapidPublicKey}
-                    class="flex items-center gap-3 px-4 py-2 rounded-lg border transition-all text-sm font-medium
-                           {pushEnabled
-                             ? 'bg-violet-600/20 border-violet-500 text-violet-300 hover:bg-violet-600/30'
-                             : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'}
-                           disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                    {#if pushLoading}
-                        <span class="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
-                    {:else}
-                        <span class="text-base">{pushEnabled ? '🔔' : '🔕'}</span>
-                    {/if}
-                    {pushEnabled ? 'Notifications activées' : 'Activer les notifications'}
-                </button>
-                {#if !vapidPublicKey}
-                    <span class="text-xs text-gray-600">Non configuré sur ce serveur</span>
-                {/if}
+        <!-- Header -->
+        <div class="sb-header">
+            <a href="/" class="sb-back" title="Retour">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 12H5M12 5l-7 7 7 7"/>
+                </svg>
+                Retour
+            </a>
+            <div class="sb-title-block">
+                <span class="sb-eyebrow">Mon compte</span>
+                <h1 class="sb-title">Paramètres</h1>
             </div>
-            {#if pushError}
-                <p class="text-xs text-red-400 mt-3">{pushError}</p>
-            {/if}
-        </section>
+        </div>
+
+        <!-- Nav items -->
+        <nav class="sb-nav">
+            <div class="sb-section-label">Général</div>
+
+            <button class="sb-item {activeSection === 'network' ? 'active' : ''}"
+                    onclick={() => activeSection = 'network'}>
+                <span class="sb-icon" style="background: rgba(99,102,241,0.15); color: #818cf8">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                    </svg>
+                </span>
+                <span class="sb-label">Réseau</span>
+            </button>
+
+            <button class="sb-item {activeSection === 'notifications' ? 'active' : ''}"
+                    onclick={() => activeSection = 'notifications'}>
+                <span class="sb-icon" style="background: rgba(139,92,246,0.15); color: #a78bfa">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                    </svg>
+                </span>
+                <span class="sb-label">Notifications</span>
+                {#if pushEnabled}
+                    <span class="sb-badge-dot" style="background:#4ade80"></span>
+                {/if}
+            </button>
+
+            <button class="sb-item {activeSection === 'instances' ? 'active' : ''}"
+                    onclick={() => activeSection = 'instances'}>
+                <span class="sb-icon" style="background: rgba(6,182,212,0.12); color: #67e8f9">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+                    </svg>
+                </span>
+                <span class="sb-label">Instances</span>
+                {#if linkedSlugs.length > 0}
+                    <span class="sb-badge">{linkedSlugs.length}</span>
+                {/if}
+            </button>
+
+            <div class="sb-section-label" style="margin-top: 16px">Sécurité</div>
+
+            <button class="sb-item {activeSection === 'security' ? 'active' : ''}"
+                    onclick={() => activeSection = 'security'}>
+                <span class="sb-icon" style="background: rgba(239,68,68,0.1); color: #f87171">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                </span>
+                <span class="sb-label">Double auth (2FA)</span>
+                {#if totpEnabled}
+                    <span class="sb-badge-dot" style="background:#4ade80"></span>
+                {:else if totpLoaded}
+                    <span class="sb-badge-dot" style="background:#6b7280"></span>
+                {/if}
+            </button>
+
+            <button class="sb-item {activeSection === 'signet' ? 'active' : ''}"
+                    onclick={() => activeSection = 'signet'}>
+                <span class="sb-icon" style="background: rgba(251,191,36,0.1); color: #fbbf24">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/>
+                    </svg>
+                </span>
+                <span class="sb-label">Nodyx Signet</span>
+                {#if signetDevices.length > 0}
+                    <span class="sb-badge">{signetDevices.length}</span>
+                {/if}
+            </button>
+
+            <div class="sb-section-label" style="margin-top: 16px">Préférences</div>
+
+            <button class="sb-item {activeSection === 'language' ? 'active' : ''}"
+                    onclick={() => activeSection = 'language'}>
+                <span class="sb-icon" style="background: rgba(16,185,129,0.12); color: #34d399">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M5 8l6 6M4 14l6-6 2-3M2 5h12M7 2h1M22 22l-5-10-5 10M14 18h6"/>
+                    </svg>
+                </span>
+                <span class="sb-label">Langue</span>
+                <span class="sb-chip">Bientôt</span>
+            </button>
+        </nav>
+
+        <!-- Footer -->
+        <div class="sb-footer">
+            <div class="sb-version">Nodyx v1.9.5</div>
+            <a href="https://nodyx.dev" target="_blank" rel="noopener" class="sb-docs-link">
+                Documentation →
+            </a>
+        </div>
+    </aside>
+
+    <!-- ── Contenu principal ──────────────────────────────────────────────── -->
+    <main class="settings-main">
+
+        <!-- ═══ RÉSEAU ══════════════════════════════════════════════════════ -->
+        {#if activeSection === 'network'}
+        <div class="s-pane" style="--accent: #818cf8; --accent-bg: rgba(99,102,241,0.08); --accent-border: rgba(99,102,241,0.2)">
+            <div class="s-pane-header">
+                <div class="s-pane-icon" style="background: var(--accent-bg); border-color: var(--accent-border); color: var(--accent)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                        <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h2 class="s-pane-title">Réseau & Infrastructure</h2>
+                    <p class="s-pane-desc">Diagnostics en temps réel de la connectivité, du relay P2P et de la latence backend.</p>
+                </div>
+            </div>
+            <div class="s-card">
+                <NetworkDoctor />
+            </div>
+        </div>
         {/if}
 
-        <!-- ── Instances liées ──────────────────────────────────────────────── -->
-        {#if user}
-        <section>
-            <h2 class="text-sm font-bold text-gray-500 uppercase tracking-[0.2em] mb-2">Mes instances (Galaxy Bar)</h2>
-            <p class="text-xs text-gray-600 mb-6">
-                Les instances sur lesquelles tu as un compte s'affichent dans la barre latérale gauche pour un accès rapide.
-            </p>
-
-            <!-- Liste des instances liées -->
-            {#if linkedSlugs.length > 0}
-                <div class="flex flex-col gap-2 mb-6">
-                    {#each linkedSlugs as slug}
-                        {@const known = directoryInstances.find(i => i.slug === slug)}
-                        <div class="flex items-center justify-between gap-3 px-3 py-2.5
-                                    rounded-lg border border-gray-800 bg-gray-900/60">
-                            <div class="flex items-center gap-2.5">
-                                <div class="w-7 h-7 rounded-lg bg-indigo-900 border border-gray-700
-                                            flex items-center justify-center overflow-hidden shrink-0">
-                                    {#if known?.logo_url}
-                                        <img src={known.logo_url.startsWith('http') ? known.logo_url : known.url.replace(/\/$/, '') + known.logo_url} alt={known.name} class="w-full h-full object-cover" />
-                                    {:else}
-                                        <span class="text-xs font-bold text-indigo-300">{slug.charAt(0).toUpperCase()}</span>
-                                    {/if}
-                                </div>
-                                <div>
-                                    <p class="text-sm font-medium text-white">{known?.name ?? slug}</p>
-                                    <p class="text-xs text-gray-600 font-mono">{known?.url ?? slug + '.nodyx.org'}</p>
-                                </div>
-                            </div>
-                            <button
-                                onclick={() => removeInstance(slug)}
-                                class="text-xs text-gray-600 hover:text-red-400 transition-colors px-2 py-1"
-                            >
-                                Retirer
-                            </button>
-                        </div>
-                    {/each}
+        <!-- ═══ NOTIFICATIONS ════════════════════════════════════════════════ -->
+        {#if activeSection === 'notifications'}
+        <div class="s-pane" style="--accent: #a78bfa; --accent-bg: rgba(139,92,246,0.08); --accent-border: rgba(139,92,246,0.2)">
+            <div class="s-pane-header">
+                <div class="s-pane-icon" style="background: var(--accent-bg); border-color: var(--accent-border); color: var(--accent)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                    </svg>
                 </div>
+                <div>
+                    <h2 class="s-pane-title">Notifications</h2>
+                    <p class="s-pane-desc">Recevez des alertes même lorsque l'onglet est fermé — mentions, DMs, réponses.</p>
+                </div>
+            </div>
+
+            {#if pushSupported && $page.data.user}
+            <div class="s-card">
+                <div class="s-row">
+                    <div class="s-row-info">
+                        <div class="s-row-title">Notifications Push</div>
+                        <div class="s-row-sub">
+                            {pushEnabled
+                                ? 'Votre navigateur est abonné. Vous recevez des alertes en temps réel.'
+                                : 'Activez pour recevoir des alertes même onglet fermé.'}
+                        </div>
+                    </div>
+                    <button
+                        onclick={togglePush}
+                        disabled={pushLoading || !vapidPublicKey}
+                        class="s-toggle {pushEnabled ? 'on' : 'off'}"
+                        aria-label="Toggle notifications"
+                    >
+                        <span class="s-toggle-thumb">
+                            {#if pushLoading}
+                                <span class="s-spin"></span>
+                            {/if}
+                        </span>
+                    </button>
+                </div>
+
+                {#if !vapidPublicKey}
+                <div class="s-info-banner">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                    Push non configuré sur ce serveur — définissez <code>VAPID_PUBLIC_KEY</code> dans l'environnement.
+                </div>
+                {/if}
+                {#if pushError}
+                <div class="s-error-banner">{pushError}</div>
+                {/if}
+            </div>
+
+            <div class="s-card s-card-muted">
+                <p class="s-hint-text">
+                    Les notifications n'envoient <strong>aucune donnée à des services tiers</strong>.
+                    Le serveur Nodyx envoie directement au navigateur via Web Push (RFC 8030).
+                </p>
+            </div>
+            {:else if !pushSupported}
+            <div class="s-card s-card-muted">
+                <p class="s-hint-text">Votre navigateur ne supporte pas les notifications Push.</p>
+            </div>
+            {/if}
+        </div>
+        {/if}
+
+        <!-- ═══ INSTANCES ════════════════════════════════════════════════════ -->
+        {#if activeSection === 'instances'}
+        <div class="s-pane" style="--accent: #67e8f9; --accent-bg: rgba(6,182,212,0.08); --accent-border: rgba(6,182,212,0.2)">
+            <div class="s-pane-header">
+                <div class="s-pane-icon" style="background: var(--accent-bg); border-color: var(--accent-border); color: var(--accent)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                        <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+                    </svg>
+                </div>
+                <div>
+                    <h2 class="s-pane-title">Galaxy Bar — Instances</h2>
+                    <p class="s-pane-desc">Gérez les instances Nodyx épinglées dans votre barre latérale gauche pour un accès rapide.</p>
+                </div>
+            </div>
+
+            {#if user}
+            <!-- Liste des instances -->
+            {#if linkedSlugs.length > 0}
+            <div class="s-card" style="padding: 0; overflow: hidden">
+                {#each linkedSlugs as slug, i}
+                    {@const known = directoryInstances.find(inst => inst.slug === slug)}
+                    <div class="s-instance-row {i > 0 ? 'border-top' : ''}">
+                        <div class="s-instance-logo">
+                            {#if known?.logo_url}
+                                <img src={known.logo_url.startsWith('http') ? known.logo_url : known.url.replace(/\/$/, '') + known.logo_url} alt={known.name} />
+                            {:else}
+                                <span>{slug.charAt(0).toUpperCase()}</span>
+                            {/if}
+                        </div>
+                        <div class="s-instance-info">
+                            <div class="s-instance-name">{known?.name ?? slug}</div>
+                            <div class="s-instance-url">{known?.url ?? slug + '.nodyx.org'}</div>
+                        </div>
+                        <button
+                            onclick={() => removeInstance(slug)}
+                            class="s-danger-btn"
+                        >
+                            Retirer
+                        </button>
+                    </div>
+                {/each}
+            </div>
             {:else}
-                <p class="text-sm text-gray-600 mb-6">Aucune instance liée pour l'instant.</p>
+            <div class="s-empty-state">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.3;margin-bottom:12px">
+                    <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+                </svg>
+                <p>Aucune instance liée pour l'instant.</p>
+                <p style="font-size:11px;opacity:0.5;margin-top:4px">Ajoutez une instance ci-dessous pour l'épingler dans la Galaxy Bar.</p>
+            </div>
             {/if}
 
-            <!-- Ajouter une instance -->
+            <!-- Ajouter -->
             {#if directoryInstances.length > 0}
-                <div class="flex gap-2">
-                    <div class="flex-1 relative">
+            <div class="s-card">
+                <div class="s-row-title" style="margin-bottom:10px">Ajouter une instance</div>
+                <div class="s-add-instance-row">
+                    <div class="s-input-wrap" style="flex:1;position:relative">
                         <input
                             list="directory-slugs"
                             type="text"
                             bind:value={newSlug}
-                            placeholder="slug (ex: french-godot)"
+                            placeholder="slug — ex: french-godot"
                             onkeydown={(e) => e.key === 'Enter' && addInstance()}
-                            class="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-700
-                                   text-sm text-gray-200 placeholder-gray-600
-                                   focus:outline-none focus:border-indigo-600 transition-colors"
+                            class="s-input"
                         />
                         <datalist id="directory-slugs">
                             {#each directoryInstances.filter(i => !linkedSlugs.includes(i.slug)) as inst}
                                 <option value={inst.slug}>{inst.name}</option>
                             {/each}
                         </datalist>
-                        {#if slugError}
-                            <p class="absolute -bottom-5 left-0 text-xs text-red-400">{slugError}</p>
-                        {/if}
                     </div>
-                    <button
-                        onclick={addInstance}
-                        disabled={slugLoading}
-                        class="px-4 py-2 rounded-lg bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50
-                               text-sm font-semibold text-white transition-colors"
-                    >
+                    <button onclick={addInstance} disabled={slugLoading} class="s-primary-btn">
                         {slugLoading ? '…' : 'Ajouter'}
                     </button>
                 </div>
-                <p class="text-xs text-gray-700 mt-7">
-                    Le slug est le sous-domaine de l'instance — ex: <code class="text-indigo-500">french-godot</code> pour <code class="text-gray-500">french-godot.nodyx.org</code>
+                {#if slugError}
+                    <p class="s-field-error">{slugError}</p>
+                {/if}
+                <p class="s-hint-text" style="margin-top:10px">
+                    Le slug est le sous-domaine — ex: <code>french-godot</code> pour <code>french-godot.nodyx.org</code>
                 </p>
+            </div>
             {/if}
-        </section>
+            {/if}
+        </div>
         {/if}
 
-        <!-- ── 2FA TOTP ──────────────────────────────────────────────────── -->
-        {#if $page.data.user}
-        <section>
-            <h2 class="text-sm font-bold text-gray-500 uppercase tracking-[0.2em] mb-2">Double authentification (2FA)</h2>
-            <p class="text-xs text-gray-600 mb-6">
-                Protégez votre compte avec un code à usage unique généré par une application comme Google Authenticator, Aegis ou Bitwarden.
-            </p>
+        <!-- ═══ SÉCURITÉ 2FA ════════════════════════════════════════════════ -->
+        {#if activeSection === 'security' && $page.data.user}
+        <div class="s-pane" style="--accent: #f87171; --accent-bg: rgba(239,68,68,0.07); --accent-border: rgba(239,68,68,0.18)">
+            <div class="s-pane-header">
+                <div class="s-pane-icon" style="background: var(--accent-bg); border-color: var(--accent-border); color: var(--accent)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h2 class="s-pane-title">Double authentification</h2>
+                    <p class="s-pane-desc">Protégez votre compte avec un code à usage unique (TOTP) — Google Authenticator, Aegis, Bitwarden.</p>
+                </div>
+            </div>
 
             {#if totpSuccess}
-                <div class="mb-4 rounded-lg border border-green-700/40 bg-green-900/10 px-4 py-2.5 text-sm text-green-400">
-                    {totpSuccess}
-                </div>
+            <div class="s-success-banner">{totpSuccess}</div>
             {/if}
 
+            <!-- État idle -->
             {#if totpStep === 'idle'}
-                <div class="flex items-center gap-4">
-                    <div class="flex items-center gap-2">
-                        <span class="inline-block w-2 h-2 rounded-full {totpEnabled ? 'bg-green-500' : 'bg-gray-600'}"></span>
-                        <span class="text-sm {totpEnabled ? 'text-green-400' : 'text-gray-500'}">
-                            {totpEnabled ? '2FA activé' : '2FA désactivé'}
-                        </span>
+            <div class="s-card">
+                <div class="s-row">
+                    <div class="s-row-info">
+                        <div class="s-row-title">Authentification à deux facteurs</div>
+                        <div class="s-row-sub">
+                            {totpEnabled
+                                ? 'Votre compte est protégé par un second facteur d\'authentification.'
+                                : 'Non activé — votre compte est vulnérable si votre mot de passe est compromis.'}
+                        </div>
                     </div>
+                    <div class="s-status-pill {totpEnabled ? 'active' : 'inactive'}">
+                        <span class="s-status-dot"></span>
+                        {totpEnabled ? 'Actif' : 'Inactif'}
+                    </div>
+                </div>
+                {#if totpError}
+                    <div class="s-error-banner" style="margin-top:12px">{totpError}</div>
+                {/if}
+                <div class="s-row-actions">
                     {#if totpEnabled}
                         <button
                             onclick={() => { totpStep = 'disable'; totpCode = ''; totpError = '' }}
-                            class="px-3 py-1.5 rounded-lg text-xs font-medium border border-red-700/40 bg-red-900/10 text-red-400
-                                   hover:bg-red-900/20 transition-colors"
-                        >Désactiver</button>
+                            class="s-ghost-danger-btn"
+                        >Désactiver le 2FA</button>
                     {:else}
                         <button
                             onclick={totpStartSetup}
                             disabled={totpLoading}
-                            class="px-3 py-1.5 rounded-lg text-xs font-medium border border-indigo-700/50 bg-indigo-900/10 text-indigo-400
-                                   hover:bg-indigo-900/20 disabled:opacity-50 transition-colors"
+                            class="s-primary-btn"
                         >{totpLoading ? '…' : 'Activer le 2FA'}</button>
                     {/if}
                 </div>
-                {#if totpError}
-                    <p class="text-xs text-red-400 mt-3">{totpError}</p>
-                {/if}
+            </div>
 
+            <!-- Setup -->
             {:else if totpStep === 'setup'}
-                <div class="rounded-xl border border-indigo-700/30 bg-indigo-900/5 p-5 space-y-5">
-                    <div>
-                        <p class="text-sm font-semibold text-white mb-1">1. Scannez ce QR code</p>
-                        <p class="text-xs text-gray-500 mb-4">Ouvrez votre application d'authentification et scannez ce code.</p>
+            <div class="s-card totp-setup-card">
+                <div class="totp-step">
+                    <div class="totp-step-num">1</div>
+                    <div class="totp-step-content">
+                        <p class="s-row-title">Scannez le QR code</p>
+                        <p class="s-row-sub" style="margin-bottom:16px">Ouvrez votre application d'authentification et scannez.</p>
                         {#if totpQr}
-                            <div class="inline-block rounded-xl p-3 bg-white">
-                                <img src={totpQr} alt="QR code 2FA" class="w-44 h-44" />
-                            </div>
+                        <div class="totp-qr-wrap">
+                            <img src={totpQr} alt="QR code 2FA" />
+                        </div>
                         {/if}
                         {#if totpSecret}
-                            <details class="mt-3">
-                                <summary class="text-xs text-gray-600 cursor-pointer select-none">Saisie manuelle (clé secrète)</summary>
-                                <code class="block mt-2 text-xs font-mono text-indigo-400 bg-gray-900 rounded px-3 py-2 break-all border border-gray-800">
-                                    {totpSecret}
-                                </code>
-                            </details>
+                        <details style="margin-top:12px">
+                            <summary class="s-hint-text" style="cursor:pointer;user-select:none">Saisie manuelle (clé secrète)</summary>
+                            <code class="totp-secret">{totpSecret}</code>
+                        </details>
                         {/if}
                     </div>
-                    <div>
-                        <p class="text-sm font-semibold text-white mb-1">2. Entrez le code de confirmation</p>
-                        <p class="text-xs text-gray-500 mb-3">Saisissez le code à 6 chiffres affiché dans votre application.</p>
+                </div>
+
+                <div class="totp-divider"></div>
+
+                <div class="totp-step">
+                    <div class="totp-step-num">2</div>
+                    <div class="totp-step-content">
+                        <p class="s-row-title">Confirmez avec le code</p>
+                        <p class="s-row-sub" style="margin-bottom:12px">Saisissez le code à 6 chiffres affiché dans votre app.</p>
                         {#if totpError}
-                            <p class="mb-2 text-xs text-red-400">{totpError}</p>
+                            <div class="s-error-banner" style="margin-bottom:10px">{totpError}</div>
                         {/if}
-                        <div class="flex gap-2">
+                        <div class="totp-confirm-row">
                             <input
                                 type="text"
                                 inputmode="numeric"
@@ -510,148 +691,817 @@
                                 bind:value={totpCode}
                                 placeholder="000000"
                                 onkeydown={(e) => e.key === 'Enter' && totpCode.length === 6 && totpConfirm()}
-                                class="w-36 rounded-lg px-3 py-2 text-center font-mono text-lg tracking-widest
-                                       bg-gray-900 border border-gray-700 text-white focus:outline-none focus:border-indigo-500"
+                                class="s-input totp-input"
                             />
-                            <button
-                                onclick={totpConfirm}
-                                disabled={totpLoading || totpCode.length < 6}
-                                class="px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-700 hover:bg-indigo-600
-                                       disabled:opacity-50 text-white transition-colors"
-                            >{totpLoading ? '…' : 'Activer'}</button>
-                            <button onclick={totpCancel} class="px-3 py-2 text-sm text-gray-500 hover:text-gray-300 transition-colors">
-                                Annuler
+                            <button onclick={totpConfirm} disabled={totpLoading || totpCode.length < 6} class="s-primary-btn">
+                                {totpLoading ? '…' : 'Activer'}
                             </button>
+                            <button onclick={totpCancel} class="s-ghost-btn">Annuler</button>
                         </div>
                     </div>
                 </div>
+            </div>
 
+            <!-- Disable -->
             {:else if totpStep === 'disable'}
-                <div class="rounded-xl border border-red-700/30 bg-red-900/5 p-5">
-                    <p class="text-sm font-semibold text-white mb-1">Désactiver le 2FA</p>
-                    <p class="text-xs text-gray-500 mb-4">Confirmez avec le code de votre application pour désactiver la double authentification.</p>
-                    {#if totpError}
-                        <p class="mb-3 text-xs text-red-400">{totpError}</p>
-                    {/if}
-                    <div class="flex gap-2">
-                        <input
-                            type="text"
-                            inputmode="numeric"
-                            pattern="[0-9]{6}"
-                            maxlength="6"
-                            bind:value={totpCode}
-                            placeholder="000000"
-                            onkeydown={(e) => e.key === 'Enter' && totpCode.length === 6 && totpDisable()}
-                            class="w-36 rounded-lg px-3 py-2 text-center font-mono text-lg tracking-widest
-                                   bg-gray-900 border border-gray-700 text-white focus:outline-none focus:border-indigo-600"
-                        />
-                        <button
-                            onclick={totpDisable}
-                            disabled={totpLoading || totpCode.length < 6}
-                            class="px-4 py-2 rounded-lg text-sm font-semibold bg-red-700 hover:bg-red-600
-                                   disabled:opacity-50 text-white transition-colors"
-                        >{totpLoading ? '…' : 'Désactiver'}</button>
-                        <button onclick={totpCancel} class="px-3 py-2 text-sm text-gray-500 hover:text-gray-300 transition-colors">
-                            Annuler
-                        </button>
-                    </div>
+            <div class="s-card" style="border-color: rgba(239,68,68,0.2)">
+                <p class="s-row-title">Désactiver le 2FA</p>
+                <p class="s-row-sub" style="margin-bottom:16px">Confirmez avec le code de votre application pour désactiver la protection.</p>
+                {#if totpError}
+                    <div class="s-error-banner" style="margin-bottom:12px">{totpError}</div>
+                {/if}
+                <div class="totp-confirm-row">
+                    <input
+                        type="text"
+                        inputmode="numeric"
+                        pattern="[0-9]{6}"
+                        maxlength="6"
+                        bind:value={totpCode}
+                        placeholder="000000"
+                        onkeydown={(e) => e.key === 'Enter' && totpCode.length === 6 && totpDisable()}
+                        class="s-input totp-input"
+                    />
+                    <button onclick={totpDisable} disabled={totpLoading || totpCode.length < 6}
+                            class="s-primary-btn" style="background: rgba(239,68,68,0.15); color: #f87171; border-color: rgba(239,68,68,0.3)">
+                        {totpLoading ? '…' : 'Désactiver'}
+                    </button>
+                    <button onclick={totpCancel} class="s-ghost-btn">Annuler</button>
                 </div>
+            </div>
             {/if}
-        </section>
+
+            <!-- Info -->
+            <div class="s-card s-card-muted">
+                <p class="s-hint-text">
+                    Les codes TOTP (RFC 6238) sont générés hors-ligne sur votre appareil.
+                    Aucune donnée ne transite par un serveur tiers.
+                </p>
+            </div>
+        </div>
         {/if}
 
-        <!-- ── Nodyx Signet ──────────────────────────────────────────────── -->
-        {#if user}
-        <section>
-            <h2 class="text-sm font-bold text-gray-500 uppercase tracking-[0.2em] mb-2">Nodyx Signet</h2>
-            <p class="text-xs text-gray-600 mb-6">
-                Connexion sans mot de passe via votre téléphone. Clé privée ECDSA P-256 chiffrée localement — elle ne quitte jamais votre appareil.
-            </p>
+        <!-- ═══ NODYX SIGNET ════════════════════════════════════════════════ -->
+        {#if activeSection === 'signet' && user}
+        <div class="s-pane" style="--accent: #fbbf24; --accent-bg: rgba(251,191,36,0.07); --accent-border: rgba(251,191,36,0.2)">
+            <div class="s-pane-header">
+                <div class="s-pane-icon" style="background: var(--accent-bg); border-color: var(--accent-border); color: var(--accent)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                        <rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/>
+                    </svg>
+                </div>
+                <div>
+                    <h2 class="s-pane-title">Nodyx Signet</h2>
+                    <p class="s-pane-desc">Connexion sans mot de passe via votre téléphone. Clé ECDSA P-256 stockée localement — elle ne quitte jamais votre appareil.</p>
+                </div>
+            </div>
 
             <!-- Appareils enregistrés -->
             {#if signetDevicesLoaded}
                 {#if signetDevices.length > 0}
-                    <div class="flex flex-col gap-2 mb-6">
-                        {#each signetDevices as device (device.id)}
-                            <div class="flex items-center justify-between gap-3 px-4 py-3 rounded-xl"
-                                style="background: rgba(251,191,36,0.04); border: 1px solid rgba(251,191,36,0.15)">
-                                <div class="flex items-center gap-3">
-                                    <span style="color: #fbbf24">◈</span>
-                                    <div>
-                                        <p class="text-sm font-medium text-white">{device.label}</p>
-                                        <p class="text-xs text-gray-600">
-                                            Enregistré le {new Date(device.created_at).toLocaleDateString('fr-FR')}
-                                            {#if device.last_used_at}
-                                                · Utilisé le {new Date(device.last_used_at).toLocaleDateString('fr-FR')}
-                                            {/if}
-                                        </p>
-                                    </div>
-                                </div>
-                                <button
-                                    onclick={() => revokeSignetDevice(device.id)}
-                                    disabled={signetRevoking === device.id}
-                                    class="text-xs px-2.5 py-1 rounded-lg disabled:opacity-50 transition-opacity"
-                                    style="color: rgb(248,113,113); background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2)">
-                                    {signetRevoking === device.id ? '…' : 'Révoquer'}
-                                </button>
+                <div class="s-card" style="padding:0;overflow:hidden">
+                    {#each signetDevices as device, i (device.id)}
+                    <div class="s-instance-row {i > 0 ? 'border-top' : ''}" style="border-color: var(--accent-border)">
+                        <div class="s-instance-logo signet-device-logo">◈</div>
+                        <div class="s-instance-info">
+                            <div class="s-instance-name">{device.label}</div>
+                            <div class="s-instance-url">
+                                Enregistré le {new Date(device.created_at).toLocaleDateString('fr-FR')}
+                                {#if device.last_used_at}
+                                    · Utilisé le {new Date(device.last_used_at).toLocaleDateString('fr-FR')}
+                                {/if}
                             </div>
-                        {/each}
+                        </div>
+                        <button
+                            onclick={() => revokeSignetDevice(device.id)}
+                            disabled={signetRevoking === device.id}
+                            class="s-danger-btn"
+                        >{signetRevoking === device.id ? '…' : 'Révoquer'}</button>
                     </div>
+                    {/each}
+                </div>
                 {:else}
-                    <p class="text-sm text-gray-600 mb-6">Aucun appareil Signet enregistré.</p>
+                <div class="s-empty-state" style="border-color: var(--accent-border)">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.3;margin-bottom:12px">
+                        <rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/>
+                    </svg>
+                    <p>Aucun appareil Signet enregistré.</p>
+                    <p style="font-size:11px;opacity:0.5;margin-top:4px">Générez un token ci-dessous pour associer votre téléphone.</p>
+                </div>
                 {/if}
             {:else}
-                <p class="text-xs text-gray-700 mb-6">Chargement…</p>
+                <div class="s-card s-card-muted">
+                    <div class="s-spin" style="margin: 0 auto"></div>
+                </div>
             {/if}
 
-            <!-- Générer un token d'enregistrement -->
-            <div class="rounded-xl p-5" style="background: rgba(251,191,36,0.04); border: 1px solid rgba(251,191,36,0.2)">
-                <div class="flex items-start justify-between gap-4 mb-3">
-                    <div>
-                        <p class="text-sm font-semibold text-white">Ajouter un appareil</p>
-                        <p class="text-xs text-gray-500 mt-0.5">Génère un token à usage unique (15 min) à coller dans l'app Nodyx Signet.</p>
+            <!-- Générer token -->
+            <div class="s-card signet-add-card">
+                <div class="s-row">
+                    <div class="s-row-info">
+                        <div class="s-row-title">Ajouter un appareil</div>
+                        <div class="s-row-sub">Token à usage unique, valable 15 minutes.</div>
                     </div>
                     <button
                         onclick={generateSignetToken}
                         disabled={signetGenerating}
-                        class="px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-50 transition-all shrink-0"
-                        style="background: rgba(251,191,36,0.15); border: 1px solid rgba(251,191,36,0.4); color: #fbbf24">
-                        {signetGenerating ? '…' : '+ Générer'}
-                    </button>
+                        class="s-primary-btn signet-gen-btn"
+                    >{signetGenerating ? '…' : '+ Générer'}</button>
                 </div>
 
                 {#if signetToken}
-                    <!-- QR Code — scannez depuis le téléphone -->
-                    <div class="mt-4 flex flex-col items-center gap-3">
-                        <p class="text-xs text-gray-500 self-start">Scannez ce QR code depuis votre téléphone :</p>
-                        <div class="rounded-xl p-3" style="background: #0a0a0a; border: 1px solid rgba(251,191,36,0.3)">
-                            <canvas bind:this={signetQrCanvas}></canvas>
-                        </div>
-                        <a
-                            href={signetQrLink}
-                            target="_blank"
-                            class="text-xs px-3 py-1.5 rounded-lg transition-colors"
-                            style="color: #fbbf24; background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.25)">
-                            Ouvrir le lien sur ce navigateur →
-                        </a>
+                <div class="signet-token-block">
+                    <p class="s-hint-text" style="margin-bottom:12px">Scannez depuis votre téléphone ou ouvrez le lien sur ce navigateur :</p>
+                    <div class="signet-qr-wrap">
+                        <canvas bind:this={signetQrCanvas}></canvas>
                     </div>
-                    <!-- Token brut (fallback) -->
-                    <details class="mt-3">
-                        <summary class="text-xs text-gray-700 cursor-pointer select-none">Afficher le token texte (saisie manuelle)</summary>
-                        <div class="mt-2 rounded-lg p-3 flex items-center gap-3" style="background: rgba(0,0,0,0.4); border: 1px solid rgba(251,191,36,0.2)">
-                            <code class="flex-1 text-xs font-mono break-all" style="color: #fbbf24">{signetToken}</code>
-                            <button
-                                onclick={copySignetToken}
-                                class="text-xs px-2.5 py-1 rounded shrink-0 transition-colors"
-                                style="color: {signetCopied ? 'rgb(74,222,128)' : 'rgb(156,163,175)'}; border: 1px solid {signetCopied ? 'rgba(74,222,128,0.3)' : 'rgba(255,255,255,0.1)'}">
+                    {#if signetQrLink}
+                    <a href={signetQrLink} target="_blank" class="signet-open-link">
+                        Ouvrir le lien →
+                    </a>
+                    {/if}
+                    <details style="margin-top:16px">
+                        <summary class="s-hint-text" style="cursor:pointer;user-select:none">Afficher le token texte (saisie manuelle)</summary>
+                        <div class="signet-token-raw">
+                            <code>{signetToken}</code>
+                            <button onclick={copySignetToken} class="signet-copy-btn {signetCopied ? 'copied' : ''}">
                                 {signetCopied ? '✓ Copié' : 'Copier'}
                             </button>
                         </div>
                     </details>
-                    <p class="text-xs text-gray-700 mt-2">Expire dans 15 minutes · Usage unique</p>
+                    <p class="s-hint-text" style="margin-top:10px;opacity:0.5">Expire dans 15 minutes · Usage unique</p>
+                </div>
                 {/if}
             </div>
-        </section>
+        </div>
         {/if}
-    </div>
+
+        <!-- ═══ LANGUE ════════════════════════════════════════════════════════ -->
+        {#if activeSection === 'language'}
+        <div class="s-pane" style="--accent: #34d399; --accent-bg: rgba(16,185,129,0.08); --accent-border: rgba(16,185,129,0.2)">
+            <div class="s-pane-header">
+                <div class="s-pane-icon" style="background: var(--accent-bg); border-color: var(--accent-border); color: var(--accent)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                        <path d="M5 8l6 6M4 14l6-6 2-3M2 5h12M7 2h1M22 22l-5-10-5 10M14 18h6"/>
+                    </svg>
+                </div>
+                <div>
+                    <h2 class="s-pane-title">Langue de l'interface</h2>
+                    <p class="s-pane-desc">Choisissez la langue d'affichage de Nodyx — français ou anglais.</p>
+                </div>
+            </div>
+
+            <div class="s-card lang-coming-soon">
+                <div class="lang-badge">Bientôt disponible</div>
+                <p style="font-size:14px;color:#6b7280;line-height:1.6;margin-top:12px">
+                    La traduction complète de l'interface (FR / EN) est en cours de développement.<br>
+                    Vous pourrez choisir votre langue ici dès la prochaine version majeure.
+                </p>
+                <div class="lang-flags">
+                    <div class="lang-flag-item active">
+                        <span class="lang-flag">🇫🇷</span>
+                        <span class="lang-flag-label">Français</span>
+                        <span class="lang-flag-active">Actuel</span>
+                    </div>
+                    <div class="lang-flag-item">
+                        <span class="lang-flag" style="opacity:0.35">🇬🇧</span>
+                        <span class="lang-flag-label" style="opacity:0.35">English</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {/if}
+
+    </main>
 </div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     STYLES
+     ══════════════════════════════════════════════════════════════════════════ -->
+<style>
+/* ── Root layout ─────────────────────────────────────────────────────────── */
+.settings-root {
+    display: flex;
+    min-height: calc(100vh - 48px);
+    background: #06060a;
+    color: #e2e8f0;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+.settings-sidebar {
+    width: 240px;
+    min-width: 240px;
+    display: flex;
+    flex-direction: column;
+    background: #0a0a10;
+    border-right: 1px solid rgba(255,255,255,0.05);
+    position: sticky;
+    top: 48px;
+    height: calc(100vh - 48px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+}
+
+.sb-header {
+    padding: 20px 16px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.sb-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #4b5563;
+    text-decoration: none;
+    transition: color 150ms;
+    margin-bottom: 14px;
+}
+.sb-back:hover { color: #9ca3af; }
+
+.sb-title-block { display: flex; flex-direction: column; gap: 2px; }
+.sb-eyebrow {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #374151;
+    font-weight: 600;
+}
+.sb-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: #f1f5f9;
+    font-family: 'Space Grotesk', sans-serif;
+    letter-spacing: -0.02em;
+    margin: 0;
+}
+
+.sb-nav {
+    flex: 1;
+    padding: 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sb-section-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #374151;
+    font-weight: 700;
+    padding: 0 8px;
+    margin-bottom: 4px;
+}
+
+.sb-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: none;
+    background: transparent;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 150ms;
+    text-align: left;
+    width: 100%;
+    position: relative;
+}
+.sb-item:hover { background: rgba(255,255,255,0.04); color: #9ca3af; }
+.sb-item.active {
+    background: rgba(99,102,241,0.12);
+    color: #e0e7ff;
+}
+.sb-item.active .sb-icon { opacity: 1; }
+
+.sb-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    opacity: 0.7;
+    transition: opacity 150ms;
+    border: 1px solid transparent;
+}
+.sb-item:hover .sb-icon, .sb-item.active .sb-icon { opacity: 1; }
+
+.sb-label {
+    font-size: 13px;
+    font-weight: 500;
+    flex: 1;
+}
+
+.sb-badge {
+    font-size: 10px;
+    font-weight: 700;
+    background: rgba(99,102,241,0.2);
+    color: #a5b4fc;
+    padding: 1px 6px;
+    border-radius: 99px;
+    min-width: 18px;
+    text-align: center;
+}
+
+.sb-badge-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.sb-chip {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #374151;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.sb-footer {
+    padding: 12px 16px;
+    border-top: 1px solid rgba(255,255,255,0.04);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.sb-version { font-size: 11px; color: #1f2937; font-family: monospace; }
+.sb-docs-link { font-size: 11px; color: #374151; text-decoration: none; transition: color 150ms; }
+.sb-docs-link:hover { color: #6366f1; }
+
+/* ── Main content ────────────────────────────────────────────────────────── */
+.settings-main {
+    flex: 1;
+    padding: 36px 40px 60px;
+    max-width: 720px;
+    min-height: 100%;
+}
+
+/* ── Section pane ────────────────────────────────────────────────────────── */
+.s-pane { display: flex; flex-direction: column; gap: 16px; }
+
+.s-pane-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 4px;
+}
+
+.s-pane-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 1px solid var(--accent-border);
+}
+
+.s-pane-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: #f1f5f9;
+    font-family: 'Space Grotesk', sans-serif;
+    letter-spacing: -0.02em;
+    margin: 0 0 4px 0;
+    line-height: 1.2;
+}
+
+.s-pane-desc {
+    font-size: 13px;
+    color: #4b5563;
+    line-height: 1.5;
+    margin: 0;
+}
+
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+.s-card {
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px;
+    padding: 20px;
+}
+.s-card-muted {
+    background: transparent;
+    border-color: rgba(255,255,255,0.04);
+}
+
+/* ── Rows ────────────────────────────────────────────────────────────────── */
+.s-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+.s-row-info { flex: 1; }
+.s-row-title { font-size: 14px; font-weight: 600; color: #e2e8f0; margin-bottom: 3px; }
+.s-row-sub { font-size: 12px; color: #4b5563; line-height: 1.5; }
+.s-row-actions { margin-top: 16px; display: flex; gap: 8px; }
+
+/* ── Toggle ──────────────────────────────────────────────────────────────── */
+.s-toggle {
+    width: 44px;
+    height: 24px;
+    border-radius: 99px;
+    position: relative;
+    cursor: pointer;
+    border: none;
+    transition: background 200ms;
+    flex-shrink: 0;
+}
+.s-toggle.on  { background: #6366f1; }
+.s-toggle.off { background: rgba(255,255,255,0.1); }
+.s-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.s-toggle-thumb {
+    position: absolute;
+    top: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: left 200ms cubic-bezier(.4,0,.2,1);
+}
+.s-toggle.on  .s-toggle-thumb { left: 23px; }
+.s-toggle.off .s-toggle-thumb { left: 3px; }
+
+/* ── Status pill ─────────────────────────────────────────────────────────── */
+.s-status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 99px;
+    flex-shrink: 0;
+}
+.s-status-pill.active  { background: rgba(74,222,128,0.1); color: #4ade80; border: 1px solid rgba(74,222,128,0.2); }
+.s-status-pill.inactive { background: rgba(107,114,128,0.1); color: #6b7280; border: 1px solid rgba(107,114,128,0.15); }
+
+.s-status-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: currentColor;
+    animation: none;
+}
+.s-status-pill.active .s-status-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.6; transform: scale(0.85); }
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.s-primary-btn {
+    padding: 8px 18px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    background: rgba(99,102,241,0.15);
+    color: #a5b4fc;
+    border: 1px solid rgba(99,102,241,0.3);
+    cursor: pointer;
+    transition: all 150ms;
+    flex-shrink: 0;
+}
+.s-primary-btn:hover:not(:disabled) {
+    background: rgba(99,102,241,0.25);
+    border-color: rgba(99,102,241,0.5);
+    color: #c7d2fe;
+}
+.s-primary-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.s-ghost-btn {
+    padding: 8px 14px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 500;
+    background: transparent;
+    color: #4b5563;
+    border: none;
+    cursor: pointer;
+    transition: color 150ms;
+}
+.s-ghost-btn:hover { color: #9ca3af; }
+
+.s-ghost-danger-btn {
+    padding: 7px 14px;
+    border-radius: 9px;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(239,68,68,0.07);
+    color: #f87171;
+    border: 1px solid rgba(239,68,68,0.2);
+    cursor: pointer;
+    transition: all 150ms;
+}
+.s-ghost-danger-btn:hover { background: rgba(239,68,68,0.14); }
+
+.s-danger-btn {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 7px;
+    background: rgba(239,68,68,0.07);
+    color: #f87171;
+    border: 1px solid rgba(239,68,68,0.18);
+    cursor: pointer;
+    transition: all 150ms;
+    flex-shrink: 0;
+}
+.s-danger-btn:hover { background: rgba(239,68,68,0.14); }
+
+/* ── Input ───────────────────────────────────────────────────────────────── */
+.s-input {
+    width: 100%;
+    padding: 9px 14px;
+    border-radius: 9px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #e2e8f0;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 150ms;
+}
+.s-input::placeholder { color: #374151; }
+.s-input:focus { border-color: rgba(99,102,241,0.5); background: rgba(255,255,255,0.06); }
+
+/* ── Banners ─────────────────────────────────────────────────────────────── */
+.s-info-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+    padding: 10px 14px;
+    border-radius: 9px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    font-size: 12px;
+    color: #4b5563;
+}
+.s-error-banner {
+    padding: 10px 14px;
+    border-radius: 9px;
+    background: rgba(239,68,68,0.07);
+    border: 1px solid rgba(239,68,68,0.2);
+    font-size: 12px;
+    color: #f87171;
+}
+.s-success-banner {
+    padding: 12px 16px;
+    border-radius: 9px;
+    background: rgba(74,222,128,0.07);
+    border: 1px solid rgba(74,222,128,0.2);
+    font-size: 13px;
+    color: #4ade80;
+    font-weight: 500;
+}
+
+.s-hint-text { font-size: 12px; color: #374151; line-height: 1.6; margin: 0; }
+.s-hint-text code { color: #6366f1; background: rgba(99,102,241,0.1); padding: 1px 5px; border-radius: 4px; }
+
+.s-field-error { font-size: 11px; color: #f87171; margin-top: 6px; }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.s-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 24px;
+    border-radius: 14px;
+    border: 1px dashed rgba(255,255,255,0.07);
+    color: #374151;
+    font-size: 13px;
+    text-align: center;
+}
+
+/* ── Instances ───────────────────────────────────────────────────────────── */
+.s-instance-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+}
+.s-instance-row.border-top { border-top: 1px solid rgba(255,255,255,0.05); }
+
+.s-instance-logo {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: rgba(99,102,241,0.12);
+    border: 1px solid rgba(99,102,241,0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+    font-size: 13px;
+    font-weight: 800;
+    color: #818cf8;
+}
+.s-instance-logo img { width: 100%; height: 100%; object-fit: cover; }
+
+.s-instance-info { flex: 1; min-width: 0; }
+.s-instance-name { font-size: 13px; font-weight: 600; color: #e2e8f0; }
+.s-instance-url  { font-size: 11px; color: #374151; font-family: monospace; margin-top: 1px; }
+
+.s-add-instance-row { display: flex; gap: 8px; }
+
+/* ── TOTP ────────────────────────────────────────────────────────────────── */
+.totp-setup-card { padding: 0; overflow: hidden; }
+.totp-step {
+    display: flex;
+    gap: 16px;
+    padding: 20px;
+}
+.totp-step-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(99,102,241,0.15);
+    border: 1px solid rgba(99,102,241,0.3);
+    color: #818cf8;
+    font-size: 12px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.totp-step-content { flex: 1; }
+.totp-divider { height: 1px; background: rgba(255,255,255,0.05); margin: 0; }
+.totp-qr-wrap {
+    display: inline-block;
+    padding: 12px;
+    background: white;
+    border-radius: 12px;
+}
+.totp-qr-wrap img { width: 160px; height: 160px; display: block; }
+.totp-secret {
+    display: block;
+    margin-top: 10px;
+    font-size: 11px;
+    font-family: monospace;
+    color: #818cf8;
+    background: rgba(99,102,241,0.08);
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(99,102,241,0.15);
+    word-break: break-all;
+    line-height: 1.6;
+}
+.totp-confirm-row { display: flex; gap: 8px; align-items: center; }
+.totp-input { width: 120px !important; text-align: center; font-family: monospace; font-size: 18px; letter-spacing: 0.15em; }
+
+/* ── Signet ──────────────────────────────────────────────────────────────── */
+.signet-device-logo {
+    background: rgba(251,191,36,0.08);
+    border-color: rgba(251,191,36,0.2);
+    color: #fbbf24;
+    font-size: 16px;
+}
+.signet-add-card { border-color: rgba(251,191,36,0.15); background: rgba(251,191,36,0.03); }
+.signet-gen-btn  {
+    background: rgba(251,191,36,0.12);
+    color: #fbbf24;
+    border-color: rgba(251,191,36,0.3);
+}
+.signet-gen-btn:hover:not(:disabled) {
+    background: rgba(251,191,36,0.2);
+    border-color: rgba(251,191,36,0.5);
+    color: #fde68a;
+}
+.signet-token-block {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(251,191,36,0.1);
+}
+.signet-qr-wrap {
+    display: inline-block;
+    padding: 12px;
+    border-radius: 14px;
+    background: #0a0a0a;
+    border: 1px solid rgba(251,191,36,0.2);
+}
+.signet-open-link {
+    display: inline-block;
+    margin-top: 12px;
+    font-size: 12px;
+    color: #fbbf24;
+    background: rgba(251,191,36,0.08);
+    border: 1px solid rgba(251,191,36,0.2);
+    padding: 6px 14px;
+    border-radius: 8px;
+    text-decoration: none;
+    transition: all 150ms;
+}
+.signet-open-link:hover { background: rgba(251,191,36,0.15); }
+.signet-token-raw {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(251,191,36,0.15);
+    padding: 10px 14px;
+    border-radius: 9px;
+}
+.signet-token-raw code {
+    flex: 1;
+    font-size: 11px;
+    font-family: monospace;
+    color: #fbbf24;
+    word-break: break-all;
+}
+.signet-copy-btn {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: transparent;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 150ms;
+    flex-shrink: 0;
+}
+.signet-copy-btn.copied { color: #4ade80; border-color: rgba(74,222,128,0.3); }
+
+/* ── Langue ──────────────────────────────────────────────────────────────── */
+.lang-coming-soon { text-align: center; padding: 36px 24px; }
+.lang-badge {
+    display: inline-flex;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #34d399;
+    background: rgba(16,185,129,0.1);
+    border: 1px solid rgba(16,185,129,0.25);
+    padding: 4px 12px;
+    border-radius: 99px;
+}
+.lang-flags {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 24px;
+}
+.lang-flag-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 16px 24px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.02);
+}
+.lang-flag-item.active { border-color: rgba(16,185,129,0.25); background: rgba(16,185,129,0.05); }
+.lang-flag { font-size: 28px; }
+.lang-flag-label { font-size: 13px; font-weight: 600; color: #6b7280; }
+.lang-flag-active { font-size: 10px; font-weight: 700; color: #34d399; text-transform: uppercase; letter-spacing: 0.08em; }
+
+/* ── Spinner ─────────────────────────────────────────────────────────────── */
+.s-spin {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,0.1);
+    border-top-color: #818cf8;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .settings-root { flex-direction: column; }
+    .settings-sidebar {
+        width: 100%;
+        min-width: unset;
+        height: auto;
+        position: static;
+        border-right: none;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .sb-nav { flex-direction: row; flex-wrap: wrap; padding: 8px; gap: 4px; }
+    .sb-section-label { display: none; }
+    .sb-item { flex: 0 0 auto; padding: 8px 12px; }
+    .sb-label { display: none; }
+    .sb-footer { display: none; }
+    .settings-main { padding: 20px 16px 40px; }
+}
+</style>
