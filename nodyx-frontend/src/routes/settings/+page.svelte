@@ -902,7 +902,7 @@
 }
 
 .sb-header {
-    padding: 20px 16px 16px;
+    padding: 14px 16px 14px;
     border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 
@@ -958,7 +958,7 @@
     align-items: center;
     gap: 10px;
     padding: 8px 10px;
-    border-radius: 10px;
+    border-radius: 6px;
     border: none;
     background: transparent;
     color: #6b7280;
@@ -1001,7 +1001,7 @@
     background: rgba(99,102,241,0.2);
     color: #a5b4fc;
     padding: 1px 6px;
-    border-radius: 99px;
+    border-radius: 5px;
     min-width: 18px;
     text-align: center;
 }
@@ -1039,8 +1039,7 @@
 /* ── Main content ────────────────────────────────────────────────────────── */
 .settings-main {
     flex: 1;
-    padding: 36px 40px 60px;
-    max-width: 720px;
+    padding: 24px 32px 60px;
     min-height: 100%;
 }
 
@@ -1057,7 +1056,7 @@
 .s-pane-icon {
     width: 48px;
     height: 48px;
-    border-radius: 14px;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1086,7 +1085,7 @@
 .s-card {
     background: rgba(255,255,255,0.025);
     border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 14px;
+    border-radius: 8px;
     padding: 20px;
 }
 .s-card-muted {
@@ -1110,7 +1109,7 @@
 .s-toggle {
     width: 44px;
     height: 24px;
-    border-radius: 99px;
+    border-radius: 5px;
     position: relative;
     cursor: pointer;
     border: none;
@@ -1144,7 +1143,7 @@
     font-size: 12px;
     font-weight: 600;
     padding: 5px 12px;
-    border-radius: 99px;
+    border-radius: 5px;
     flex-shrink: 0;
 }
 .s-status-pill.active  { background: rgba(74,222,128,0.1); color: #4ade80; border: 1px solid rgba(74,222,128,0.2); }
@@ -1165,7 +1164,7 @@
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 .s-primary-btn {
     padding: 8px 18px;
-    border-radius: 9px;
+    border-radius: 6px;
     font-size: 13px;
     font-weight: 600;
     background: rgba(99,102,241,0.15);
@@ -1184,7 +1183,7 @@
 
 .s-ghost-btn {
     padding: 8px 14px;
-    border-radius: 9px;
+    border-radius: 6px;
     font-size: 13px;
     font-weight: 500;
     background: transparent;
@@ -1197,7 +1196,7 @@
 
 .s-ghost-danger-btn {
     padding: 7px 14px;
-    border-radius: 9px;
+    border-radius: 6px;
     font-size: 12px;
     font-weight: 600;
     background: rgba(239,68,68,0.07);
@@ -1226,7 +1225,7 @@
 .s-input {
     width: 100%;
     padding: 9px 14px;
-    border-radius: 9px;
+    border-radius: 6px;
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
     color: #e2e8f0;
@@ -1244,7 +1243,7 @@
     gap: 8px;
     margin-top: 14px;
     padding: 10px 14px;
-    border-radius: 9px;
+    border-radius: 6px;
     background: rgba(255,255,255,0.03);
     border: 1px solid rgba(255,255,255,0.06);
     font-size: 12px;
@@ -1252,7 +1251,7 @@
 }
 .s-error-banner {
     padding: 10px 14px;
-    border-radius: 9px;
+    border-radius: 6px;
     background: rgba(239,68,68,0.07);
     border: 1px solid rgba(239,68,68,0.2);
     font-size: 12px;
@@ -1260,7 +1259,7 @@
 }
 .s-success-banner {
     padding: 12px 16px;
-    border-radius: 9px;
+    border-radius: 6px;
     background: rgba(74,222,128,0.07);
     border: 1px solid rgba(74,222,128,0.2);
     font-size: 13px;
@@ -1279,7 +1278,7 @@
     flex-direction: column;
     align-items: center;
     padding: 32px 24px;
-    border-radius: 14px;
+    border-radius: 8px;
     border: 1px dashed rgba(255,255,255,0.07);
     color: #374151;
     font-size: 13px;
@@ -1298,7 +1297,7 @@
 .s-instance-logo {
     width: 36px;
     height: 36px;
-    border-radius: 10px;
+    border-radius: 6px;
     background: rgba(99,102,241,0.12);
     border: 1px solid rgba(99,102,241,0.2);
     display: flex;
@@ -1391,7 +1390,7 @@
 .signet-qr-wrap {
     display: inline-block;
     padding: 12px;
-    border-radius: 14px;
+    border-radius: 8px;
     background: #0a0a0a;
     border: 1px solid rgba(251,191,36,0.2);
 }
@@ -1416,7 +1415,7 @@
     background: rgba(0,0,0,0.4);
     border: 1px solid rgba(251,191,36,0.15);
     padding: 10px 14px;
-    border-radius: 9px;
+    border-radius: 6px;
 }
 .signet-token-raw code {
     flex: 1;
@@ -1451,7 +1450,7 @@
     background: rgba(16,185,129,0.1);
     border: 1px solid rgba(16,185,129,0.25);
     padding: 4px 12px;
-    border-radius: 99px;
+    border-radius: 5px;
 }
 .lang-flags {
     display: flex;
@@ -1465,7 +1464,7 @@
     align-items: center;
     gap: 6px;
     padding: 16px 24px;
-    border-radius: 14px;
+    border-radius: 8px;
     border: 1px solid rgba(255,255,255,0.06);
     background: rgba(255,255,255,0.02);
 }
