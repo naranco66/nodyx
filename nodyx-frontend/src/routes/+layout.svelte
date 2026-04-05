@@ -13,7 +13,9 @@
 	import { buildNameStyle, buildAnimClass, ensureFontLoaded, GOOGLE_FONTS_URL } from '$lib/nameEffects';
 	import VoicePanel from '$lib/components/VoicePanel.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
-	import { voiceStore, voiceChannelMembersStore, voiceEventsStore } from '$lib/voice';
+	import MemberScreenPreview from '$lib/components/MemberScreenPreview.svelte';
+	import { get } from 'svelte/store';
+	import { voiceStore, voiceChannelMembersStore, voiceEventsStore, screenShareStore, remoteScreenStore } from '$lib/voice';
 	import { locale, t } from '$lib/i18n';
 	const tFn = $derived($t)
 
@@ -30,6 +32,26 @@
 	const chatMentions    = $derived($chatMentionStore);
 	const dmUnread        = $derived($dmUnreadStore);
 	const onlineMembers   = $derived($onlineMembersStore);
+
+	// ── Activités en temps réel ────────────────────────────────────────────────
+	// Dérivé des stores voice : aucune modif backend requise.
+	// Extensible : ajouter streamingUserIds quand le plugin Twitch Rust sera prêt.
+	const screenSharingUserIds = $derived((() => {
+		const ids = new Set<string>()
+		// Partages distants : socketId → userId via peers
+		for (const [socketId] of $remoteScreenStore) {
+			const peer = $voiceStore.peers.find(p => p.socketId === socketId)
+			if (peer) ids.add(peer.userId)
+		}
+		// Propre partage
+		if ($screenShareStore) {
+			const uid = (data.user as any)?.id
+			if (uid) ids.add(uid)
+		}
+		return ids
+	})())
+	// Hook futur plugin Twitch/streaming — à peupler par le plugin Rust
+	const streamingUserIds = $derived(new Set<string>())
 
 	// Reset chat mention badge when user is on /chat
 	$effect(() => {
@@ -200,6 +222,27 @@
 		return { groups, ungrouped }
 	})())
 
+
+	// ── Screen preview hover popup ────────────────────────────────────────────
+	let screenPreview = $state<{ stream: MediaStream; username: string; avatar: string | null; x: number; y: number; side: 'left' | 'right' } | null>(null)
+
+	// Use get() to read store values from within event handlers (not reactive context)
+	function getScreenStream(userId: string): MediaStream | null {
+		const peers  = get(voiceStore).peers
+		const screens = get(remoteScreenStore)
+		const peer = peers.find((p: any) => p.userId === userId)
+		if (!peer) return null
+		return screens.get(peer.socketId) ?? null
+	}
+
+	function showScreenPreview(e: MouseEvent, userId: string | null, username: string, avatar: string | null, side: 'left' | 'right') {
+		if (!userId) return
+		const stream = getScreenStream(userId)
+		if (!stream) return
+		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+		const x = side === 'right' ? rect.right : rect.left
+		screenPreview = { stream, username, avatar, x, y: rect.top, side }
+	}
 
 	// ── Custom status ─────────────────────────────────────────────────────────
 	let showStatusModal = $state(false)
@@ -778,10 +821,10 @@
 						{@const inThis   = voiceState.active && voiceState.channelId === ch.id}
 						{@const members  = inThis
 							? [
-								...voiceState.peers.map((p: any) => ({ username: p.username, avatar: p.avatar ?? null, speaking: p.speaking ?? false, muted: p.muted ?? false, isMe: false })),
-								{ username: user?.username ?? tFn('common.you'), avatar: user?.avatar ?? null, speaking: voiceState.mySpeaking, muted: voiceState.muted, isMe: true },
+								...voiceState.peers.map((p: any) => ({ username: p.username, avatar: p.avatar ?? null, speaking: p.speaking ?? false, muted: false, deafened: false, isMe: false, userId: p.userId ?? null, socketId: p.socketId ?? null })),
+								{ username: user?.username ?? tFn('common.you'), avatar: user?.avatar ?? null, speaking: voiceState.mySpeaking, muted: voiceState.muted, deafened: voiceState.deafened, isMe: true, userId: (user as any)?.id ?? null, socketId: null },
 							]
-							: (vcMembers[ch.id] ?? []).map((m: any) => ({ ...m, speaking: false, muted: false, isMe: false }))}
+							: (vcMembers[ch.id] ?? []).map((m: any) => ({ ...m, speaking: false, muted: false, deafened: false, isMe: false, userId: m.userId ?? null, socketId: null }))}
 						<a href="/chat?channel={ch.id}"
 						   class="relative flex items-center gap-2.5 px-2.5 py-2 text-sm transition-all"
 						   style="color: {chActive ? '#e2e8f0' : '#4b5563'}; background: {chActive ? 'rgba(124,58,237,.12)' : 'transparent'}">
@@ -798,37 +841,76 @@
 						</a>
 						<!-- Membres connectés -->
 						{#if members.length > 0}
-							<div class="flex flex-col pl-6 pb-1 gap-px">
+							<div class="flex flex-col pl-5 pr-1 pt-0.5 pb-1.5 gap-0.5">
 								{#each members.slice(0, 6) as m}
-									<div class="flex items-center gap-2 px-1 py-0.5">
+									{@const mSharing = !!(m.userId && screenSharingUserIds.has(m.userId))}
+									{@const borderColor = m.speaking ? 'rgba(74,222,128,0.6)' : m.deafened ? 'rgba(249,115,22,0.45)' : m.muted ? 'rgba(239,68,68,0.35)' : mSharing ? 'rgba(59,130,246,0.35)' : 'rgba(255,255,255,0.04)'}
+									{@const bgColor    = m.speaking ? 'rgba(74,222,128,0.07)' : m.deafened ? 'rgba(249,115,22,0.05)' : m.muted ? 'rgba(239,68,68,0.04)' : 'rgba(255,255,255,0.02)'}
+									{@const nameColor  = m.speaking ? '#86efac' : m.deafened ? '#fdba74' : m.muted ? '#fca5a5' : m.isMe ? '#c4b5fd' : '#6b7280'}
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<div class="vc-member-card relative flex items-center gap-2 px-2 py-1.5 transition-all duration-200"
+									     style="background:{bgColor}; border-left:2px solid {borderColor};"
+									     onmouseenter={mSharing ? (e: MouseEvent) => showScreenPreview(e, m.userId, m.username, m.avatar, 'right') : undefined}
+									     onmouseleave={() => { screenPreview = null }}>
+
 										<!-- Avatar -->
 										<div class="relative shrink-0">
-											{#if m.avatar}
-												<img src={m.avatar} alt={m.username} class="w-6 h-6 rounded-full object-cover" />
-											{:else}
-												<div class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
-												     style="background: linear-gradient(135deg, #7c3aed, #0e7490)">
-													{m.username.charAt(0).toUpperCase()}
+											<div class="w-[22px] h-[22px] rounded-full overflow-hidden transition-all duration-200"
+											     style="box-shadow:{m.speaking ? '0 0 0 2px rgba(74,222,128,0.55), 0 0 8px rgba(74,222,128,0.25)' : 'none'}">
+												{#if m.avatar}
+													<img src={m.avatar} alt={m.username} class="w-full h-full object-cover"/>
+												{:else}
+													<div class="w-full h-full flex items-center justify-center text-[9px] font-black text-white select-none"
+													     style="background:linear-gradient(135deg,#7c3aed,#0e7490)">
+														{m.username.charAt(0).toUpperCase()}
+													</div>
+												{/if}
+											</div>
+											<!-- Screen share badge -->
+											{#if mSharing}
+												<div class="absolute -bottom-0.5 -right-0.5 w-[11px] h-[11px] rounded-full flex items-center justify-center"
+												     style="background:#3b82f6;border:1.5px solid #0d0d12">
+													<svg style="width:6px;height:5px" fill="none" stroke="white" stroke-width="3" viewBox="0 0 24 17">
+														<rect x="1" y="1" width="22" height="13" rx="2"/>
+													</svg>
 												</div>
 											{/if}
-											{#if m.speaking}
-												<span class="absolute -bottom-px -right-px w-2 h-2 rounded-full bg-green-400 border border-[#12121a]"></span>
-											{/if}
 										</div>
-										<span class="text-xs truncate flex-1"
-										      style="color: {m.speaking ? '#86efac' : m.isMe ? '#a78bfa' : '#6b7280'};">
+
+										<!-- Username -->
+										<span class="text-[11px] font-medium truncate flex-1 transition-colors duration-200"
+										      style="color:{nameColor}">
 											{m.isMe ? tFn('common.you') : m.username}
 										</span>
-										{#if m.muted}
-											<svg class="w-3 h-3 shrink-0 ml-auto" fill="none" stroke="#ef4444" stroke-width="2" viewBox="0 0 24 24" style="opacity:0.65;" title="En sourdine">
-												<path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
-												<path stroke-linecap="round" stroke-linejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/>
-											</svg>
+
+										<!-- Right: wave bars if speaking, else status icons -->
+										{#if m.speaking && !m.muted && !m.deafened}
+											<div class="vc-wave-bars shrink-0" aria-label="Parle">
+												<span class="vc-bar" style="animation-delay:0s"></span>
+												<span class="vc-bar" style="animation-delay:0.18s"></span>
+												<span class="vc-bar" style="animation-delay:0.09s"></span>
+											</div>
+										{:else}
+											<div class="flex items-center gap-0.5 shrink-0">
+												{#if m.deafened}
+													<svg class="w-[11px] h-[11px]" aria-label="Écouteurs coupés" style="color:#fb923c" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+														<path stroke-linecap="round" d="M3 18v-6a9 9 0 0118 0v6"/>
+														<path stroke-linecap="round" d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z"/>
+														<path stroke-linecap="round" d="M2 2l20 20"/>
+													</svg>
+												{/if}
+												{#if m.muted}
+													<svg class="w-[11px] h-[11px]" aria-label="Micro coupé" style="color:#f87171" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+														<path stroke-linecap="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+														<path stroke-linecap="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/>
+													</svg>
+												{/if}
+											</div>
 										{/if}
 									</div>
 								{/each}
 								{#if members.length > 6}
-									<span class="text-[10px] pl-6" style="color: #374151">{tFn('common.others_more', { n: members.length - 6 })}</span>
+									<span class="text-[10px] pl-2 pt-0.5" style="color:#374151">{tFn('common.others_more', { n: members.length - 6 })}</span>
 								{/if}
 							</div>
 						{/if}
@@ -947,12 +1029,16 @@
 							<span class="text-[9px] font-bold tabular-nums shrink-0" style="color: #374151">{members.length}</span>
 						</div>
 						{#each members as member (member.userId)}
-							{@const isMe = member.userId === (user as any)?.id}
-							{@const hasStatus = !!(member.status?.text || member.status?.emoji)}
+							{@const isMe        = member.userId === (user as any)?.id}
+							{@const hasStatus   = !!(member.status?.text || member.status?.emoji)}
+							{@const isSharing   = screenSharingUserIds.has(member.userId)}
+							{@const isStreaming = streamingUserIds.has(member.userId)}
 							<svelte:element
 								this={isMe ? 'button' : 'a'}
 								href={isMe ? undefined : `/users/${member.username}`}
 								onclick={isMe ? openStatusModal : undefined}
+								onmouseenter={isSharing && !isMe ? (e: MouseEvent) => showScreenPreview(e, member.userId, member.username, member.avatar, 'left') : undefined}
+								onmouseleave={() => { screenPreview = null }}
 								class="relative w-full flex items-center gap-2.5 px-2 py-2 transition-all group"
 								style="background: {isMe ? 'rgba(124,58,237,.06)' : 'transparent'}; text-align: left">
 								<!-- Hover bar -->
@@ -965,10 +1051,18 @@
 										<div class="w-7 h-7 flex items-center justify-center text-[11px] font-black text-white select-none"
 										     style="background: linear-gradient(135deg, {members[0]?.grade?.color ?? '#7c3aed'}80, #0e7490)">{member.username.charAt(0).toUpperCase()}</div>
 									{/if}
-									<!-- Online dot with glow -->
+									<!-- Online dot — remplacé par icône activité si besoin -->
 									<span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 flex items-center justify-center"
 									      style="background: #0d0d12">
-										<span class="w-1.5 h-1.5 rounded-full" style="background: #4ade80; box-shadow: 0 0 4px #4ade8088"></span>
+										{#if isSharing}
+											<svg style="width:10px;height:10px;color:rgb(96,165,250)" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+												<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+											</svg>
+										{:else if isStreaming}
+											<span style="width:8px;height:8px;border-radius:50%;background:#ef4444;animation:pulse 1.5s infinite;display:block"></span>
+										{:else}
+											<span class="w-1.5 h-1.5 rounded-full" style="background: #4ade80; box-shadow: 0 0 4px #4ade8088"></span>
+										{/if}
 									</span>
 								</div>
 								<!-- Info -->
@@ -980,10 +1074,30 @@
 											<span class="shrink-0 text-[8px] font-black uppercase px-1 py-px leading-none" style="background: rgba(124,58,237,.25); color: #a78bfa">vous</span>
 										{/if}
 									</div>
-									{#if hasStatus}
+									<!-- Activité temps réel -->
+									{#if isSharing || isStreaming}
+										<div class="flex items-center gap-1 mt-0.5">
+											{#if isSharing}
+												<span style="display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:700;padding:1px 5px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.22);color:rgb(96,165,250)">
+													<svg style="width:7px;height:7px;shrink:0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+													ÉCRAN
+												</span>
+											{/if}
+											{#if isStreaming}
+												<span style="display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:700;padding:1px 5px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.22);color:rgb(248,113,113)">
+													<span style="width:5px;height:5px;border-radius:50%;background:currentColor;animation:pulse 1.5s infinite;display:inline-block"></span>
+													LIVE
+												</span>
+											{/if}
+										</div>
+									{:else if hasStatus}
 										<div class="text-[10px] truncate leading-tight mt-px" style="color: #4b5563">{member.status?.emoji} {member.status?.text}</div>
 									{:else if isMe}
 										<div class="text-[10px] leading-tight mt-px transition-colors group-hover:opacity-80" style="color: #374151">{tFn('common.set_status')}</div>
+									{/if}
+									<!-- Statut custom affiché sous l'activité si les deux existent -->
+									{#if (isSharing || isStreaming) && hasStatus}
+										<div class="text-[10px] truncate leading-tight" style="color: #374151">{member.status?.emoji} {member.status?.text}</div>
 									{/if}
 								</div>
 							</svelte:element>
@@ -998,12 +1112,16 @@
 							<span class="text-[9px] font-bold tabular-nums" style="color: #374151">{memberGroups.ungrouped.length}</span>
 						</div>
 						{#each memberGroups.ungrouped as member (member.userId)}
-							{@const isMe = member.userId === (user as any)?.id}
-							{@const hasStatus = !!(member.status?.text || member.status?.emoji)}
+							{@const isMe        = member.userId === (user as any)?.id}
+							{@const hasStatus   = !!(member.status?.text || member.status?.emoji)}
+							{@const isSharing   = screenSharingUserIds.has(member.userId)}
+							{@const isStreaming = streamingUserIds.has(member.userId)}
 							<svelte:element
 								this={isMe ? 'button' : 'a'}
 								href={isMe ? undefined : `/users/${member.username}`}
 								onclick={isMe ? openStatusModal : undefined}
+								onmouseenter={isSharing && !isMe ? (e: MouseEvent) => showScreenPreview(e, member.userId, member.username, member.avatar, 'left') : undefined}
+								onmouseleave={() => { screenPreview = null }}
 								class="relative w-full flex items-center gap-2.5 px-2 py-2 transition-all group"
 								style="background: {isMe ? 'rgba(124,58,237,.06)' : 'transparent'}; text-align: left">
 								<span class="absolute left-0 top-0.5 bottom-0.5 w-0.5 opacity-0 group-hover:opacity-100 transition-opacity" style="background: linear-gradient(to bottom, #7c3aed, #06b6d4)"></span>
@@ -1015,7 +1133,15 @@
 										     style="background: linear-gradient(135deg, #7c3aed80, #0e7490)">{member.username.charAt(0).toUpperCase()}</div>
 									{/if}
 									<span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 flex items-center justify-center" style="background: #0d0d12">
-										<span class="w-1.5 h-1.5 rounded-full" style="background: #4ade80; box-shadow: 0 0 4px #4ade8088"></span>
+										{#if isSharing}
+											<svg style="width:10px;height:10px;color:rgb(96,165,250)" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+												<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+											</svg>
+										{:else if isStreaming}
+											<span style="width:8px;height:8px;border-radius:50%;background:#ef4444;animation:pulse 1.5s infinite;display:block"></span>
+										{:else}
+											<span class="w-1.5 h-1.5 rounded-full" style="background: #4ade80; box-shadow: 0 0 4px #4ade8088"></span>
+										{/if}
 									</span>
 								</div>
 								<div class="min-w-0 flex-1">
@@ -1026,10 +1152,28 @@
 											<span class="shrink-0 text-[8px] font-black uppercase px-1 py-px leading-none" style="background: rgba(124,58,237,.25); color: #a78bfa">vous</span>
 										{/if}
 									</div>
-									{#if hasStatus}
+									{#if isSharing || isStreaming}
+										<div class="flex items-center gap-1 mt-0.5">
+											{#if isSharing}
+												<span style="display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:700;padding:1px 5px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.22);color:rgb(96,165,250)">
+													<svg style="width:7px;height:7px" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+													ÉCRAN
+												</span>
+											{/if}
+											{#if isStreaming}
+												<span style="display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:700;padding:1px 5px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.22);color:rgb(248,113,113)">
+													<span style="width:5px;height:5px;border-radius:50%;background:currentColor;animation:pulse 1.5s infinite;display:inline-block"></span>
+													LIVE
+												</span>
+											{/if}
+										</div>
+									{:else if hasStatus}
 										<div class="text-[10px] truncate leading-tight mt-px" style="color: #4b5563">{member.status?.emoji} {member.status?.text}</div>
 									{:else if isMe}
 										<div class="text-[10px] leading-tight mt-px" style="color: #374151">{tFn('common.set_status')}</div>
+									{/if}
+									{#if (isSharing || isStreaming) && hasStatus}
+										<div class="text-[10px] truncate leading-tight" style="color: #374151">{member.status?.emoji} {member.status?.text}</div>
 									{/if}
 								</div>
 							</svelte:element>
@@ -1303,3 +1447,40 @@
 	token={data.token ?? null}
 	onClose={() => paletteOpen = false}
 />
+
+<!-- ── Screen share hover preview ────────────────────────────────────────── -->
+{#if screenPreview}
+	<MemberScreenPreview {...screenPreview} />
+{/if}
+
+<style>
+/* ── Voice channel member cards ─────────────────────────────────────────── */
+.vc-member-card {
+	border-radius: 0;
+}
+.vc-member-card:hover {
+	background: rgba(255,255,255,0.035) !important;
+}
+
+/* Animated equalizer bars — shown when a member is speaking */
+.vc-wave-bars {
+	display: flex;
+	align-items: flex-end;
+	gap: 2px;
+	height: 12px;
+	width: 14px;
+}
+.vc-bar {
+	display: block;
+	width: 2.5px;
+	background: #4ade80;
+	border-radius: 1px;
+	transform-origin: bottom center;
+	animation: vc-wave 0.65s ease-in-out infinite;
+	height: 100%;
+}
+@keyframes vc-wave {
+	0%, 100% { transform: scaleY(0.25); opacity: 0.55 }
+	50%       { transform: scaleY(1);    opacity: 1    }
+}
+</style>

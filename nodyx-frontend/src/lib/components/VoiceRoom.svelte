@@ -33,6 +33,9 @@
 	const localScreen      = $derived($localScreenStore);
 	const remoteScreens    = $derived($remoteScreenStore);
 	const anyScreenSharing = $derived($screenShareStore || $remoteScreenStore.size > 0);
+	const totalScreens     = $derived((localScreen ? 1 : 0) + remoteScreens.size);
+	// 1 stream → full width ; 2-4 → 2 col ; 5+ → 3 col
+	const gridCols         = $derived(totalScreens <= 1 ? 1 : totalScreens <= 4 ? 2 : 3);
 
 	let showScreenShare = $state(false);
 	$effect(() => { if (anyScreenSharing) showScreenShare = true; });
@@ -197,23 +200,67 @@
 
 <!-- ── Screen share panel ──────────────────────────────────────────────────── -->
 {#if showScreenShare && (localScreen || remoteScreens.size > 0)}
-	<div class="shrink-0 flex items-center justify-center gap-3 p-3 overflow-x-auto"
-	     style="max-height: 38vh; background: #07070f; border-bottom: 1px solid rgba(255,255,255,0.05);">
+	<div class="shrink-0 grid gap-2 p-3 overflow-y-auto"
+	     style="grid-template-columns: repeat({gridCols}, 1fr); max-height: 55vh; background: #07070f; border-bottom: 1px solid rgba(255,255,255,0.05);">
 		{#if localScreen}
-			<div class="relative shrink-0 h-40 overflow-hidden bg-gray-900"
-			     style="border: 1px solid rgba(59,130,246,0.35); box-shadow: 0 0 20px rgba(59,130,246,0.1);">
-				<video class="h-full object-contain" autoplay muted playsinline use:srcStream={localScreen}></video>
-				<span class="absolute bottom-1 left-2 text-[10px] text-white font-semibold px-2 py-0.5"
-				      style="background: rgba(0,0,0,0.75);">Vous</span>
+			<div class="relative group/sc overflow-hidden bg-black"
+			     style="aspect-ratio: 16/9; border: 1px solid rgba(59,130,246,0.35); box-shadow: 0 0 24px rgba(59,130,246,0.12);">
+				<video
+					class="w-full h-full object-contain cursor-pointer"
+					autoplay muted playsinline
+					use:srcStream={localScreen}
+					ondblclick={(e) => (e.currentTarget as HTMLVideoElement).requestFullscreen?.()}
+					title="Double-clic pour plein écran"
+				></video>
+				<!-- Badge -->
+				<span class="absolute bottom-2 left-2 text-[10px] text-white font-semibold px-2 py-0.5 rounded"
+				      style="background: rgba(0,0,0,0.7);">Vous</span>
+				<!-- Fullscreen btn -->
+				<button
+					onclick={(e) => (e.currentTarget as HTMLElement).closest('div')?.querySelector('video')?.requestFullscreen?.()}
+					class="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded
+					       opacity-0 group-hover/sc:opacity-100 transition-opacity duration-150"
+					style="background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.15); color: white;"
+					title="Plein écran"
+				>
+					<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+					</svg>
+				</button>
 			</div>
 		{/if}
 		{#each [...remoteScreens.entries()] as [socketId, stream] (socketId)}
 			{@const peer = voiceState.peers.find((p: any) => p.socketId === socketId)}
-			<div class="relative shrink-0 h-40 overflow-hidden bg-gray-900"
-			     style="border: 1px solid rgba(59,130,246,0.25);">
-				<video class="h-full object-contain" autoplay playsinline use:srcStream={stream}></video>
-				<span class="absolute bottom-1 left-2 text-[10px] text-white font-semibold px-2 py-0.5"
-				      style="background: rgba(0,0,0,0.75);">{peer?.username ?? 'Peer'}</span>
+			<div class="relative group/sc overflow-hidden bg-black"
+			     style="aspect-ratio: 16/9; border: 1px solid rgba(59,130,246,0.25);">
+				<video
+					class="w-full h-full object-contain cursor-pointer"
+					autoplay playsinline
+					use:srcStream={stream}
+					ondblclick={(e) => (e.currentTarget as HTMLVideoElement).requestFullscreen?.()}
+					title="Double-clic pour plein écran"
+				></video>
+				<!-- Badge -->
+				<span class="absolute bottom-2 left-2 text-[10px] text-white font-semibold px-2 py-0.5 rounded"
+				      style="background: rgba(0,0,0,0.7);">{peer?.username ?? 'Peer'}</span>
+				<!-- Live dot -->
+				<span class="absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded"
+				      style="background: rgba(0,0,0,0.6);">
+					<span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+					<span class="text-[9px] text-white font-bold">LIVE</span>
+				</span>
+				<!-- Fullscreen btn -->
+				<button
+					onclick={(e) => (e.currentTarget as HTMLElement).closest('div')?.querySelector('video')?.requestFullscreen?.()}
+					class="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded
+					       opacity-0 group-hover/sc:opacity-100 transition-opacity duration-150"
+					style="background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.15); color: white;"
+					title="Plein écran"
+				>
+					<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+					</svg>
+				</button>
 			</div>
 		{/each}
 	</div>

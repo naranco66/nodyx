@@ -20,6 +20,9 @@
     function setBitrate(bitrate: VoiceSettings['bitrate']) {
         updateLocalAudio({ bitrate })
     }
+    function setNoiseGateThreshold(e: Event) {
+        updateLocalAudio({ noiseGateThreshold: +(e.target as HTMLInputElement).value })
+    }
 </script>
 
 <div class="p-4 space-y-5 text-sm select-none">
@@ -74,6 +77,7 @@
             </div>
             <button
                 role="switch"
+                aria-label="Filtre passe-haut"
                 aria-checked={s.highPassEnabled}
                 onclick={() => updateLocalAudio({ highPassEnabled: !s.highPassEnabled })}
                 class="relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 transition-colors duration-200
@@ -101,6 +105,7 @@
             </div>
             <button
                 role="switch"
+                aria-label="Suppression IA RNNoise"
                 aria-checked={s.rnnoiseEnabled}
                 onclick={() => updateLocalAudio({ rnnoiseEnabled: !s.rnnoiseEnabled })}
                 class="relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 transition-colors duration-200
@@ -114,6 +119,56 @@
                 </span>
             </button>
         </label>
+
+        <!-- Noise gate -->
+        <label class="flex items-center justify-between cursor-pointer group">
+            <div>
+                <p class="text-xs font-medium text-gray-200 group-hover:text-white transition-colors">
+                    Porte de bruit
+                </p>
+                <p class="text-[10px] text-gray-500">Coupe le fond sonore entre les prises de parole</p>
+            </div>
+            <button
+                role="switch"
+                aria-label="Porte de bruit"
+                aria-checked={s.noiseGateEnabled}
+                onclick={() => updateLocalAudio({ noiseGateEnabled: !s.noiseGateEnabled })}
+                class="relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 transition-colors duration-200
+                       {s.noiseGateEnabled
+                           ? 'bg-teal-600 border-teal-500'
+                           : 'bg-gray-700 border-gray-600'}"
+            >
+                <span class="pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow
+                             transform transition-transform duration-200
+                             {s.noiseGateEnabled ? 'translate-x-4' : 'translate-x-0'}">
+                </span>
+            </button>
+        </label>
+
+        {#if s.noiseGateEnabled}
+            <div class="space-y-1.5 bg-teal-500/5 border border-teal-500/20 rounded-xl p-3">
+                <div class="flex justify-between items-center">
+                    <span class="text-[11px] text-teal-300/80 font-medium">Seuil de déclenchement</span>
+                    <span class="text-[11px] font-mono text-teal-300 bg-teal-500/10 px-2 py-0.5 rounded-md">
+                        {s.noiseGateThreshold} dBFS
+                    </span>
+                </div>
+                <input
+                    type="range" min="-80" max="-10" step="1"
+                    value={s.noiseGateThreshold}
+                    oninput={setNoiseGateThreshold}
+                    class="w-full h-1.5 rounded-full appearance-none cursor-pointer
+                           bg-gray-700 accent-teal-400"
+                />
+                <p class="text-[10px] text-gray-500">
+                    {s.noiseGateThreshold <= -60
+                        ? 'Très sensible — coupe quasi tout'
+                        : s.noiseGateThreshold <= -40
+                        ? 'Équilibré — recommandé'
+                        : 'Agressif — peut couper la voix douce'}
+                </p>
+            </div>
+        {/if}
     </section>
 
     <div class="border-t border-gray-800"></div>
@@ -136,6 +191,7 @@
             </div>
             <button
                 role="switch"
+                aria-label="Mode Broadcast"
                 aria-checked={s.broadcastModeEnabled}
                 onclick={() => updateLocalAudio({ broadcastModeEnabled: !s.broadcastModeEnabled })}
                 class="relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 transition-colors duration-200 mt-0.5
@@ -198,8 +254,8 @@
     <!-- ── Qualité réseau ─────────────────────────────────────────── -->
     <section class="space-y-2">
         <p class="text-[10px] uppercase tracking-widest text-gray-500 font-bold">Qualité réseau</p>
-        <div class="grid grid-cols-3 gap-1.5">
-            {#each ([32, 64, 128] as const) as br}
+        <div class="grid grid-cols-4 gap-1.5">
+            {#each ([32, 64, 96, 128] as const) as br}
                 <button
                     onclick={() => setBitrate(br)}
                     class="flex flex-col items-center py-2 px-1 rounded-lg border text-[10px] font-bold transition-all
@@ -208,18 +264,22 @@
                                : 'bg-gray-800/50 border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300'}"
                 >
                     <span class="text-sm mb-0.5">
-                        {br === 32 ? '🪫' : br === 64 ? '⚡' : '💎'}
+                        {br === 32 ? '🪫' : br === 64 ? '⚡' : br === 96 ? '🎙️' : '💎'}
                     </span>
-                    {br} kbps
+                    {br}k
                     <span class="font-normal text-[9px] opacity-70 mt-0.5">
-                        {br === 32 ? 'Économie' : br === 64 ? 'Standard' : 'HD'}
+                        {br === 32 ? 'Économie' : br === 64 ? 'Standard' : br === 96 ? 'Qualité' : 'Studio'}
                     </span>
                 </button>
             {/each}
         </div>
-        {#if s.bitrate !== 64}
+        {#if s.bitrate === 32}
             <p class="text-[10px] text-amber-400/80 flex items-center gap-1">
-                ⚠️ Effectif à la prochaine connexion vocale
+                ⚠️ Qualité limitée — recommandé en faible débit uniquement
+            </p>
+        {:else if s.bitrate !== 64}
+            <p class="text-[10px] text-gray-500 flex items-center gap-1">
+                Effectif à la prochaine connexion vocale
             </p>
         {/if}
     </section>

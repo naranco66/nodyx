@@ -1046,14 +1046,29 @@ export function stopPTT(): void {
 // ── Screen sharing ────────────────────────────────────────────────
 
 export type DisplaySurface = 'monitor' | 'window' | 'browser'
+export type ShareQuality  = '720p' | '1080p' | '4k'
+export type ShareFps      = 15 | 30 | 60
 
-export async function startScreenShare(displaySurface: DisplaySurface = 'monitor'): Promise<void> {
+export async function startScreenShare(
+  displaySurface: DisplaySurface = 'monitor',
+  quality: ShareQuality = '1080p',
+  fps: ShareFps = 30
+): Promise<void> {
   const { channelId } = get(voiceStore)
   if (!channelId || !_socket) return
 
+  const w = quality === '4k' ? 3840 : quality === '1080p' ? 1920 : 1280
+  const h = quality === '4k' ? 2160 : quality === '1080p' ? 1080 : 720
+
   try {
     const displayStream = await navigator.mediaDevices.getDisplayMedia({
-      video: { displaySurface, cursor: 'always' } as any,
+      video: {
+        displaySurface,
+        width:     { ideal: w },
+        height:    { ideal: h },
+        frameRate: { ideal: fps, max: fps },
+        cursor:    'always',
+      } as any,
       audio: false,
     })
 

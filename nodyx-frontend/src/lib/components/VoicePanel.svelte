@@ -3,29 +3,41 @@
         voiceStore, leaveVoice, toggleMute, toggleDeafen, togglePTTMode,
         startPTT, stopPTT, inputLevel, setPeerVolume,
         peerStatsStore, getQuality, voiceFullStore,
-        startScreenShare, stopScreenShare, screenShareStore,
+        startScreenShare, stopScreenShare, screenShareStore, remoteScreenStore,
         type VoicePeer, type PeerStats, type NetQuality,
     } from '$lib/voice'
 
-    import MediaCenter    from './MediaCenter.svelte'
-    import VoiceSettings from './VoiceSettings.svelte'
+    import VoiceSettings    from './VoiceSettings.svelte'
+    import ScreenShareModal from './ScreenShareModal.svelte'
+    import StageView        from './StageView.svelte'
     import { onMount } from 'svelte'
     import { t } from '$lib/i18n'
     import { voicePanelTarget } from '$lib/voicePanel'
 
     let { mode = 'float', extraClass = '' }: { mode?: 'float' | 'sidebar'; extraClass?: string } = $props()
 
-    let showMediaHub      = $state(false)
+    let showShareModal  = $state(false)
+    let showStage       = $state(false)
     let showVoiceSettings = $state(false)
 
-    const vs        = $derived($voiceStore)
-    const peers     = $derived(vs.peers)
-    const muted     = $derived(vs.muted)
-    const deafened  = $derived(vs.deafened)
-    const pttMode   = $derived(vs.pttMode)
-    const level     = $derived($inputLevel)
-    const statsMap  = $derived($peerStatsStore)
-    const isSharing = $derived($screenShareStore)
+    const vs            = $derived($voiceStore)
+    const peers         = $derived(vs.peers)
+    const muted         = $derived(vs.muted)
+    const deafened      = $derived(vs.deafened)
+    const pttMode       = $derived(vs.pttMode)
+    const level         = $derived($inputLevel)
+    const statsMap      = $derived($peerStatsStore)
+    const isSharing     = $derived($screenShareStore)
+    const remoteScreens = $derived($remoteScreenStore)
+    const anySharing    = $derived(isSharing || remoteScreens.size > 0)
+    const shareCount    = $derived(remoteScreens.size + (isSharing ? 1 : 0))
+
+    // Auto-ouvrir le Stage dès qu'un partage distant devient actif
+    $effect(() => {
+        if (remoteScreens.size > 0 && !showStage) {
+            showStage = true
+        }
+    })
 
     const tFn = $derived($t)
 
@@ -599,26 +611,35 @@
                     <!-- Contrôles -->
                     <div class='flex items-center gap-1 shrink-0' style="z-index: 100;">
 
-                        <!-- Media Center -->
-                        <button
-                            onclick={() => showMediaHub = !showMediaHub}
-                            class='hidden sm:flex p-2 rounded-lg transition-all duration-200 transform hover:scale-110 active:scale-95 relative
-                                   {showMediaHub
-                                       ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/50 ring-2 ring-indigo-400/50'
-                                       : 'bg-gray-800/80 text-gray-300 hover:text-white hover:bg-gray-700 hover:shadow-lg hover:shadow-indigo-500/20 border border-gray-700 hover:border-indigo-500/30'}'
-                            title={tFn('voice.screenshare_title')}
-                            style="pointer-events: auto; position: relative; z-index: 102;"
-                        >
-                            <span class="text-sm block {showMediaHub ? 'animate-pulse' : ''}">🖥️</span>
-                        </button>
+                        <!-- Stage button — visible when any share is active -->
+                        {#if anySharing}
+                            <button
+                                onclick={() => { showStage = !showStage; showShareModal = false }}
+                                class='hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all duration-200 transform hover:scale-110 active:scale-95 relative
+                                       {showStage
+                                           ? "bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg shadow-red-500/50 ring-2 ring-red-400/50"
+                                           : "text-red-400 border border-red-500/30 hover:border-red-400/50"}'
+                                style="pointer-events: auto; position: relative; z-index: 102; {!showStage ? 'background: rgba(239,68,68,0.08)' : ''}"
+                                title="Ouvrir le Stage"
+                            >
+                                <span class="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
+                                <span class="text-[11px] font-bold uppercase tracking-wider">Stage</span>
+                                {#if shareCount > 1}
+                                    <span class="text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full"
+                                          style="background: rgba(255,255,255,0.15)">{shareCount}</span>
+                                {/if}
+                            </button>
+                        {/if}
 
-                        <!-- Partage d'écran -->
+                        <!-- Partager l'écran / Arrêter -->
                         <button
-                            onclick={() => { isSharing ? stopScreenShare() : startScreenShare('monitor'); showMediaHub = false }}
+                            onclick={() => { isSharing ? stopScreenShare() : (showShareModal = !showShareModal); showStage = false }}
                             class='hidden sm:flex p-2 rounded-lg transition-all duration-200 transform hover:scale-110 active:scale-95 relative
                                    {isSharing
                                        ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/50 ring-2 ring-emerald-400/50"
-                                       : "bg-gray-800/80 text-gray-300 hover:text-white hover:bg-gray-700 hover:shadow-lg hover:shadow-emerald-500/20 border border-gray-700 hover:border-emerald-500/30"}'
+                                       : showShareModal
+                                           ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/50 ring-2 ring-indigo-400/50"
+                                           : "bg-gray-800/80 text-gray-300 hover:text-white hover:bg-gray-700 hover:shadow-lg hover:shadow-emerald-500/20 border border-gray-700 hover:border-emerald-500/30"}'
                             title={isSharing ? 'Arrêter le partage' : "Partager l'écran"}
                             style="pointer-events: auto; position: relative; z-index: 102;"
                         >
@@ -708,7 +729,7 @@
 
                         <!-- ⚙️ Paramètres son -->
                         <button
-                            onclick={() => { showVoiceSettings = !showVoiceSettings; showMediaHub = false }}
+                            onclick={() => { showVoiceSettings = !showVoiceSettings; showShareModal = false }}
                             class='hidden sm:flex px-2 py-1.5 rounded-lg transition-all duration-200 transform hover:scale-110 active:scale-95 relative
                                    items-center gap-1
                                    {showVoiceSettings
@@ -723,7 +744,7 @@
 
                         <!-- ··· bouton mobile-only (ouvre VoiceSettings) -->
                         <button
-                            onclick={() => { showVoiceSettings = !showVoiceSettings; showMediaHub = false }}
+                            onclick={() => { showVoiceSettings = !showVoiceSettings; showShareModal = false }}
                             class='sm:hidden p-2 rounded-lg bg-gray-800/80 text-gray-300 border border-gray-700
                                    min-w-[44px] min-h-[44px] flex items-center justify-center
                                    transition-all duration-200'
@@ -760,45 +781,7 @@
                     </div>
                 </div>
 
-                <!-- ── MediaCenter popup ─────────────────────────────────────────
-                     IMPORTANT : placé ICI, en dehors du div overflow-hidden de la
-                     barre principale, mais toujours à l'intérieur du div.relative
-                     parent, pour que absolute bottom-full soit visible.
-                ─────────────────────────────────────────────────────────────── -->
-                {#if showMediaHub}
-                    <div class="fixed inset-0 sm:absolute sm:inset-auto sm:bottom-full sm:mb-2 sm:right-0 sm:w-[400px] z-[200]
-                                flex flex-col sm:block animate-in fade-in slide-in-from-bottom-4 duration-300"
-                         style="pointer-events: auto;">
-                        <div class="relative flex-1 sm:flex-none bg-gradient-to-b from-gray-900 to-gray-950
-                                    border border-indigo-500/30 sm:rounded-2xl shadow-2xl shadow-indigo-500/20
-                                    overflow-hidden backdrop-blur-md flex flex-col">
-                            <div class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-indigo-500 to-transparent"></div>
-                            <!-- Header fermeture mobile-only -->
-                            <div class="sm:hidden flex items-center justify-between px-4 py-3 border-b border-gray-800 bg-gray-900/95 shrink-0">
-                                <span class="text-sm font-semibold text-white">{tFn('voice.screenshare_title')}</span>
-                                <button onclick={() => showMediaHub = false}
-                                        class="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-white">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                                    </svg>
-                                </button>
-                            </div>
-                            <div class="flex-1 overflow-y-auto sm:flex-none sm:overflow-visible">
-                                <MediaCenter />
-                            </div>
-                            <button
-                                onclick={() => showMediaHub = false}
-                                class="hidden sm:flex absolute top-4 right-4 text-gray-500 hover:text-white
-                                       bg-black/40 w-7 h-7 rounded-full items-center justify-center
-                                       backdrop-blur-sm border border-gray-700 hover:border-indigo-500/50
-                                       transition-all duration-200 hover:scale-110"
-                                style="pointer-events: auto; z-index: 201;"
-                            >
-                                <span class="text-sm">✕</span>
-                            </button>
-                        </div>
-                    </div>
-                {/if}
+                <!-- VoiceSettings popup stays here (uses absolute bottom-full positioning) -->
 
                 <!-- ── VoiceSettings popup ────────────────────────────────────── -->
                 {#if showVoiceSettings}
@@ -929,8 +912,17 @@
                     </svg>
                 </button>
 
-                <!-- Partage d'écran -->
-                <button onclick={() => { isSharing ? stopScreenShare() : startScreenShare('monitor') }}
+                <!-- Stage (sidebar) -->
+                {#if anySharing}
+                    <button onclick={() => { showStage = !showStage }}
+                        title="Stage"
+                        class="flex-1 flex items-center justify-center p-1.5 rounded-lg transition-colors text-red-400 bg-red-900/20">
+                        <span class="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
+                    </button>
+                {/if}
+
+                <!-- Partage d'écran (sidebar) -->
+                <button onclick={() => { isSharing ? stopScreenShare() : (showShareModal = !showShareModal) }}
                     title={isSharing ? 'Arrêter le partage' : "Partager l'écran"}
                     class="flex-1 flex items-center justify-center p-1.5 rounded-lg transition-colors
                            {isSharing ? 'text-emerald-400 bg-emerald-900/30' : 'text-gray-400 hover:text-white hover:bg-gray-800'}">
@@ -941,7 +933,7 @@
                 </button>
 
                 <!-- Settings audio -->
-                <button onclick={() => { showVoiceSettings = !showVoiceSettings; showMediaHub = false }}
+                <button onclick={() => { showVoiceSettings = !showVoiceSettings; showShareModal = false }}
                     title={tFn('voice.audio_settings_title')}
                     class="flex-1 flex items-center justify-center p-1.5 rounded-lg transition-colors
                            {showVoiceSettings ? 'text-amber-400 bg-amber-900/30' : 'text-gray-400 hover:text-white hover:bg-gray-800'}">
@@ -988,6 +980,14 @@
             {/if}
         </div>
     </div>
+    {/if}
+
+    <!-- ── Modals au niveau racine — hors de tout backdrop-filter ── -->
+    {#if showShareModal}
+        <ScreenShareModal onclose={() => showShareModal = false}/>
+    {/if}
+    {#if showStage}
+        <StageView onclose={() => showStage = false}/>
     {/if}
 {/if}
 

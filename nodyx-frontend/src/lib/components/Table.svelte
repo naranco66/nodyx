@@ -234,87 +234,122 @@
 					<!-- svelte-ignore a11y_interactive_supports_focus -->
 					<div
 						role={p.isMe ? undefined : 'button'}
-						class="relative flex flex-col items-center gap-4 py-7 px-4 transition-all duration-150"
+						class="player-card relative flex flex-col items-center gap-5 py-8 px-5 transition-all duration-200 overflow-hidden"
 						style="
-							background: {isSpeaking || myActive ? 'rgba(124,58,237,0.07)' : 'rgba(13,13,20,0.9)'};
+							background: {isSpeaking || myActive
+								? 'linear-gradient(160deg, rgba(124,58,237,0.13) 0%, rgba(6,182,212,0.06) 100%)'
+								: 'linear-gradient(160deg, rgba(13,13,22,0.95) 0%, rgba(9,9,18,0.98) 100%)'};
 							border: 1px solid rgba(124,58,237,{borderOpacity});
-							box-shadow: 0 0 {shadowSize}px rgba(124,58,237,{shadowAlpha}), 0 2px 12px rgba(0,0,0,0.5);
+							box-shadow: 0 0 {shadowSize}px rgba(124,58,237,{shadowAlpha}),
+							            0 0 {isSpeaking ? shadowSize : '0'}px rgba(6,182,212,{(parseFloat(shadowAlpha)*0.5).toFixed(2)}),
+							            0 8px 32px rgba(0,0,0,0.6),
+							            inset 0 1px 0 rgba(255,255,255,0.03);
 							cursor: {p.isMe ? 'default' : 'pointer'};
 						"
 						onclick={(e) => { if (!p.isMe) openMenu(p, e) }}
 					>
+						<!-- Animated scan line — visible when speaking -->
+						{#if isSpeaking || myActive}
+							<div class="card-scan-line absolute top-0 left-0 right-0 h-[2px] pointer-events-none"
+							     style="opacity:{(0.4 + glowLevel * 0.6).toFixed(2)}"></div>
+						{/if}
 
-						<!-- Avatar + rings -->
-						<div class="relative flex items-center justify-center">
-							<!-- Outer speak ring (peers) -->
+						<!-- Corner decorations — cyberpunk style -->
+						<div class="absolute top-0 left-0 w-4 h-4 pointer-events-none" style="border-top:1px solid rgba(124,58,237,0.4);border-left:1px solid rgba(124,58,237,0.4)"></div>
+						<div class="absolute top-0 right-0 w-4 h-4 pointer-events-none" style="border-top:1px solid rgba(6,182,212,0.3);border-right:1px solid rgba(6,182,212,0.3)"></div>
+						<div class="absolute bottom-0 left-0 w-4 h-4 pointer-events-none" style="border-bottom:1px solid rgba(6,182,212,0.3);border-left:1px solid rgba(6,182,212,0.3)"></div>
+						<div class="absolute bottom-0 right-0 w-4 h-4 pointer-events-none" style="border-bottom:1px solid rgba(124,58,237,0.4);border-right:1px solid rgba(124,58,237,0.4)"></div>
+
+						<!-- "Vous" chip — top-left -->
+						{#if p.isMe}
+							<div class="absolute top-2.5 left-3 px-1.5 py-px pointer-events-none"
+							     style="background:rgba(124,58,237,0.14);border:1px solid rgba(124,58,237,0.35)">
+								<span class="text-[8px] font-black uppercase tracking-[0.15em]" style="color:rgba(167,139,250,0.85)">Vous</span>
+							</div>
+						{/if}
+
+						<!-- Quality indicator — top-right -->
+						{#if !p.isMe && pStats}
+							<div class="absolute top-3 right-3 flex items-end gap-[2px]" title="Qualité réseau : {quality}">
+								{#each [1,2,3] as bar}
+									<div class="w-[3px] rounded-sm transition-colors duration-500"
+									     style="height:{4 + bar * 3}px; background:{bar <= qBars ? qColor : 'rgba(255,255,255,0.08)'}"></div>
+								{/each}
+							</div>
+						{/if}
+
+						<!-- Avatar + aura + rings -->
+						<div class="relative flex items-center justify-center mt-1">
+							<!-- Ambient aura blob (audio-reactive) -->
+							{#if isSpeaking || myActive}
+								<div class="absolute rounded-full pointer-events-none"
+								     style="
+								         width:{(88 + glowLevel * 40).toFixed(0)}px;
+								         height:{(88 + glowLevel * 40).toFixed(0)}px;
+								         background: radial-gradient(circle, rgba(124,58,237,{(0.18 + glowLevel * 0.22).toFixed(2)}) 0%, transparent 70%);
+								         filter: blur(10px);
+								         transition: all 60ms linear;
+								     "></div>
+							{/if}
+
+							<!-- Outer speak rings (peers) -->
 							{#if isSpeaking && !p.isMe}
-								<div class="absolute rounded-full speak-ring"
-								     style="inset: -8px; border: 1.5px solid rgba(124,58,237,0.35);"></div>
-								<div class="absolute rounded-full speak-ring"
-								     style="inset: -14px; border: 1px solid rgba(124,58,237,0.18); animation-delay: 0.55s;"></div>
+								<div class="absolute rounded-full speak-ring" style="inset:-10px; border:1.5px solid rgba(124,58,237,0.3)"></div>
+								<div class="absolute rounded-full speak-ring" style="inset:-18px; border:1px solid rgba(6,182,212,0.15); animation-delay:0.6s"></div>
 							{/if}
 
 							{#if p.avatar}
 								<img
 									src={p.avatar} alt={p.username}
-									class="w-[72px] h-[72px] rounded-full object-cover relative z-10"
+									class="w-[88px] h-[88px] rounded-full object-cover relative z-10"
 									style="
-										box-shadow: 0 0 0 {ringSize}px rgba(124,58,237,{ringAlpha}), 0 4px 20px rgba(0,0,0,0.7);
+										box-shadow: 0 0 0 {ringSize}px rgba(124,58,237,{ringAlpha}),
+										            0 0 {isSpeaking || myActive ? '18' : '6'}px rgba(124,58,237,{isSpeaking || myActive ? '0.28' : '0.08'}),
+										            0 6px 28px rgba(0,0,0,0.85);
 										transition: box-shadow 60ms linear;
 									"
 								/>
 							{:else}
-								<div
-									class="w-[72px] h-[72px] rounded-full flex items-center justify-center text-2xl font-black text-white relative z-10"
-									style="
-										background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%);
-										box-shadow: 0 0 0 {ringSize}px rgba(124,58,237,{ringAlpha}), 0 4px 20px rgba(0,0,0,0.7);
-										transition: box-shadow 60ms linear;
-									"
-								>
+								<div class="w-[88px] h-[88px] rounded-full flex items-center justify-center text-3xl font-black text-white relative z-10"
+								     style="
+								         background: linear-gradient(145deg, rgba(124,58,237,0.4) 0%, rgba(6,182,212,0.2) 100%);
+								         border: 1px solid rgba(124,58,237,0.35);
+								         box-shadow: 0 0 0 {ringSize}px rgba(124,58,237,{ringAlpha}),
+								                     0 6px 28px rgba(0,0,0,0.85);
+								         transition: box-shadow 60ms linear;
+								     ">
 									{p.username.charAt(0).toUpperCase()}
 								</div>
 							{/if}
 
 							<!-- Mute badge -->
 							{#if (p.isMe && vs.muted) || isMutedLocal}
-								<div class="absolute -bottom-1 -right-1 z-20 w-5 h-5 rounded-full flex items-center justify-center"
-								     style="background: #0d0d12; border: 1px solid rgba(239,68,68,0.5);">
-									<svg class="w-2.5 h-2.5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+								<div class="absolute -bottom-1.5 -right-1.5 z-20 w-6 h-6 rounded-full flex items-center justify-center"
+								     style="background:#0a0a12; border:1.5px solid rgba(239,68,68,0.6); box-shadow:0 0 8px rgba(239,68,68,0.25);">
+									<svg class="w-3 h-3" style="color:#f87171" fill="currentColor" viewBox="0 0 20 20">
 										<path fill-rule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clip-rule="evenodd"/>
 									</svg>
 								</div>
 							{/if}
 						</div>
 
-						<!-- Quality indicator (peers only, top-right corner) -->
-					{#if !p.isMe && pStats}
-						<div class="absolute top-2.5 right-2.5 flex items-end gap-[2px]" title="Qualité réseau : {quality}">
-							{#each [1,2,3] as bar}
-								<div class="w-[3px] rounded-sm transition-colors duration-500"
-								     style="height: {4 + bar * 3}px; background: {bar <= qBars ? qColor : 'rgba(255,255,255,0.1)'};">
-								</div>
-							{/each}
-						</div>
-					{/if}
-
-					<!-- Name + EQ bars -->
-						<div class="flex flex-col items-center gap-1.5">
-							<span
-								class="text-xs font-semibold tracking-wide truncate max-w-[120px] transition-colors duration-200"
-								style="color: {isSpeaking || myActive ? '#c4b5fd' : '#6b7280'};"
-							>
+						<!-- Name + EQ bars -->
+						<div class="flex flex-col items-center gap-2 w-full">
+							<span class="text-[13px] font-bold tracking-wide truncate max-w-[140px] transition-all duration-200"
+							      style="color:{isSpeaking || myActive ? '#e2e8f0' : '#6b7280'}; {isSpeaking || myActive ? 'text-shadow:0 0 14px rgba(167,139,250,0.55)' : ''}">
 								{p.isMe ? 'Vous' : p.username}
 							</span>
 
-							<!-- EQ bars when active -->
-							<div class="flex items-end gap-[2px] h-3 transition-opacity duration-200"
-							     style="opacity: {isSpeaking || myActive ? 1 : 0};">
-								<div class="w-[3px] rounded-sm eq-bar" style="background: #7c3aed; animation-delay: 0.00s;"></div>
-								<div class="w-[3px] rounded-sm eq-bar" style="background: #8b5cf6; animation-delay: 0.18s;"></div>
-								<div class="w-[3px] rounded-sm eq-bar" style="background: #a78bfa; animation-delay: 0.08s;"></div>
-								<div class="w-[3px] rounded-sm eq-bar" style="background: #8b5cf6; animation-delay: 0.25s;"></div>
-								<div class="w-[3px] rounded-sm eq-bar" style="background: #7c3aed; animation-delay: 0.13s;"></div>
+							<!-- 7-bar EQ — gradient violet → cyan, 16px tall -->
+							<div class="flex items-end gap-[2.5px] transition-opacity duration-300"
+							     style="height:16px; opacity:{isSpeaking || myActive ? 1 : 0};">
+								{#each [
+									{c:'#6d28d9',d:'0.00s'},{c:'#7c3aed',d:'0.14s'},{c:'#8b5cf6',d:'0.05s'},
+									{c:'#a78bfa',d:'0.22s'},{c:'#67e8f9',d:'0.09s'},{c:'#22d3ee',d:'0.17s'},
+									{c:'#67e8f9',d:'0.03s'}
+								] as bar}
+									<div class="w-[2.5px] rounded-sm eq-bar" style="background:{bar.c}; animation-delay:{bar.d}"></div>
+								{/each}
 							</div>
 						</div>
 
@@ -497,6 +532,22 @@
 </div>
 
 <style>
+	/* ── Player card ────────────────────────────────────────────────────── */
+	.player-card[role="button"]:hover {
+		background: linear-gradient(160deg, rgba(124,58,237,0.09) 0%, rgba(6,182,212,0.04) 100%) !important;
+	}
+
+	/* Animated scan line at card top */
+	@keyframes card-scan {
+		0%   { background-position: -100% 0; }
+		100% { background-position: 200% 0; }
+	}
+	.card-scan-line {
+		background: linear-gradient(90deg, transparent 0%, rgba(167,139,250,0.7) 40%, rgba(103,232,249,0.7) 60%, transparent 100%);
+		background-size: 60% 100%;
+		animation: card-scan 2.4s linear infinite;
+	}
+
 	/* ── Halo bouton rejoindre ───────────────────────────────────────────── */
 	@keyframes join-ring-pulse {
 		0%   { transform: scale(1);   opacity: 0.5; }
