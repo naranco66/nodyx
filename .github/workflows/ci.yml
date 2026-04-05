@@ -6,16 +6,22 @@ on:
   pull_request:
     branches: [main]
 
+# Annule le run précédent sur la même branche si un nouveau push arrive
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # ── 1. nodyx-core — TypeScript + Vitest ────────────────────────────────────
   test-node:
-    name: Node.js — typecheck + tests
+    name: "nodyx-core — typecheck + tests"
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -30,36 +36,70 @@ jobs:
         working-directory: nodyx-core
         run: npx tsc --noEmit
 
-      - name: Vitest — run tests
+      - name: Vitest — 181 tests attendus
         working-directory: nodyx-core
         env:
-          JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci-test-secret-at-least-32-chars-long' }}
+          JWT_SECRET: ci-nodyx-test-secret-32chars-longok
           NODE_ENV: test
         run: npm test
 
-  test-rust:
-    name: Rust — build + tests
+  # ── 2. nodyx-frontend — Svelte typecheck + build ───────────────────────────
+  check-frontend:
+    name: "nodyx-frontend — typecheck + build"
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cache Rust
-        uses: actions/cache@v4
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            nodyx-p2p/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('nodyx-p2p/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: nodyx-frontend/package-lock.json
 
-      - name: Rust — build
+      - name: Install dependencies
+        working-directory: nodyx-frontend
+        run: npm ci
+
+      - name: Svelte — typecheck (svelte-check)
+        working-directory: nodyx-frontend
+        env:
+          PUBLIC_API_URL: http://localhost:3000/api/v1
+          PUBLIC_DIRECTORY_URL: https://nodyx.org
+          PUBLIC_SIGNET_URL: ''
+        run: npm run check
+
+      - name: SvelteKit — build production
+        working-directory: nodyx-frontend
+        env:
+          PUBLIC_API_URL: http://localhost:3000/api/v1
+          PUBLIC_DIRECTORY_URL: https://nodyx.org
+          PUBLIC_SIGNET_URL: ''
+        run: npm run build
+
+  # ── 3. nodyx-p2p — Rust build + tests ─────────────────────────────────────
+  test-rust:
+    name: "nodyx-p2p — cargo build + tests"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust toolchain (stable, depuis rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust (registry + target)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: nodyx-p2p
+
+      - name: cargo build -p nodyx-server
         working-directory: nodyx-p2p
         run: cargo build -p nodyx-server
 
-      - name: Rust — tests
+      - name: cargo test -p nodyx-server — 18 tests attendus
         working-directory: nodyx-p2p
         run: cargo test -p nodyx-server
