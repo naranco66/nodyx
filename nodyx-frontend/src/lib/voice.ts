@@ -278,13 +278,14 @@ const _offerLocks:     Map<string, boolean> = new Map()  // true = onOffer in pr
 //     → MediaStreamDestinationNode         → WebRTC (track stable)
 
 interface LocalChain {
-  ctx:    AudioContext
-  hp:     BiquadFilterNode
-  eqMud:  BiquadFilterNode
-  eqPres: BiquadFilterNode
-  eqAir:  BiquadFilterNode
-  gain:   GainNode
-  dest:   MediaStreamAudioDestinationNode
+  ctx:     AudioContext
+  hp:      BiquadFilterNode
+  eqMud:   BiquadFilterNode
+  eqPres:  BiquadFilterNode
+  eqAir:   BiquadFilterNode
+  gain:    GainNode
+  analyser: AnalyserNode   // tap passif sur gain — partagé avec le VAD local
+  dest:    MediaStreamAudioDestinationNode
 }
 
 let _localChain: LocalChain | null = null
@@ -347,16 +348,27 @@ async function _buildLocalChain(rawStream: MediaStream): Promise<MediaStream> {
   const gain      = ctx.createGain()
   gain.gain.value = s.micGain
 
+  // ── Analyser (tap passif) — partagé avec startLocalVAD ──────────
+  // Branché en parallèle sur gain, aucune sortie connectée.
+  // Fonctionne même si son output n'est pas câblé (getByteFrequencyData toujours actif).
+  // Évite de créer un second AudioContext dans startLocalVAD.
+  const analyser       = ctx.createAnalyser()
+  analyser.fftSize     = 512
+  analyser.smoothingTimeConstant = 0.3
+
   // ── Destination → track stable pour WebRTC ───────────────────────
   const dest = ctx.createMediaStreamDestination()
 
-  // Câblage
+  // Câblage principal
   head.connect(hp)
   hp.connect(eqMud)
   eqMud.connect(eqPres)
   eqPres.connect(eqAir)
   eqAir.connect(gain)
   gain.connect(dest)
+
+  // Tap analyser (parallèle, passif — ne modifie pas le signal WebRTC)
+  gain.connect(analyser)
 
   // Chrome suspend les AudioContexts sans connexion à ctx.destination.
   // Un GainNode à 0 vers la sortie système garde le contexte actif (silencieux pour l'utilisateur).
@@ -365,7 +377,7 @@ async function _buildLocalChain(rawStream: MediaStream): Promise<MediaStream> {
   gain.connect(keepAlive)
   keepAlive.connect(ctx.destination)
 
-  _localChain = { ctx, hp, eqMud, eqPres, eqAir, gain, dest }
+  _localChain = { ctx, hp, eqMud, eqPres, eqAir, gain, analyser, dest }
   return dest.stream
 }
 
@@ -449,6 +461,7 @@ function _stopContextKeepAlive(): void {
 interface PeerAudio {
   audioEl:     HTMLAudioElement
   ctx:         AudioContext | null  // null si la création AudioContext échoue
+  source:      MediaStreamAudioSourceNode | null  // référence explicite pour disconnect()
   analyser:    AnalyserNode | null
   vadInterval: ReturnType<typeof setInterval>
 }
@@ -475,19 +488,23 @@ function createPeerAudio(socketId: string, stream: MediaStream): void {
 
   // ── AudioContext uniquement pour VAD (niveau d'entrée → indicateur "parle")
   // Si le contexte est suspendu, on perd juste l'indicateur visuel — l'audio joue quand même.
-  let ctx:      AudioContext | null = null
+  // sampleRate: 48000 — cohérent avec le codec Opus WebRTC.
+  let ctx:     AudioContext | null = null
+  let source:  MediaStreamAudioSourceNode | null = null
   let analyser: AnalyserNode | null = null
   try {
-    ctx = new AudioContext()
-    const source = ctx.createMediaStreamSource(stream)
+    ctx = new AudioContext({ sampleRate: 48000 })
+    source   = ctx.createMediaStreamSource(stream)
     analyser = ctx.createAnalyser()
     analyser.fftSize = 512
+    analyser.smoothingTimeConstant = 0.3
     source.connect(analyser)
     // Pas de connexion à ctx.destination ni à MediaStreamDestination —
     // le son sort déjà via audioEl.srcObject = stream
     ctx.resume().catch(() => {})
   } catch {
-    ctx = null
+    ctx      = null
+    source   = null
     analyser = null
   }
 
@@ -503,7 +520,7 @@ function createPeerAudio(socketId: string, stream: MediaStream): void {
     }))
   }, 100)
 
-  _peerAudio.set(socketId, { audioEl, ctx, analyser, vadInterval })
+  _peerAudio.set(socketId, { audioEl, ctx, source, analyser, vadInterval })
 }
 
 function destroyPeerAudio(socketId: string): void {
@@ -512,6 +529,8 @@ function destroyPeerAudio(socketId: string): void {
     clearInterval(node.vadInterval)
     node.audioEl.pause()
     node.audioEl.srcObject = null
+    // Déconnecter explicitement avant de fermer le contexte
+    try { node.source?.disconnect()  } catch { /* déjà déconnecté */ }
     try { node.analyser?.disconnect() } catch { /* déjà déconnecté */ }
     node.ctx?.close().catch(() => {})
     _peerAudio.delete(socketId)
@@ -767,7 +786,7 @@ function _doRejoin(channelId: string): void {
 
   _socket.emit('voice:join', channelId)
 
-  stopVAD('__local__')
+  stopLocalVAD()
   startLocalVAD(channelId)
 }
 
@@ -784,44 +803,41 @@ async function flushICEQueue(socketId: string, pc: RTCPeerConnection): Promise<v
 }
 
 // ── Local VAD (Voice Activity Detection) ─────────────────────────
+//
+// Réutilise l'AnalyserNode déjà présent dans _localChain (tap sur gain).
+// Aucun AudioContext supplémentaire créé — élimine le double-contexte.
 
-type AudioEntry = { ctx: AudioContext; analyser: AnalyserNode; interval: ReturnType<typeof setInterval> }
-const _audioCtxMap = new Map<string, AudioEntry>()
+let _localVADInterval: ReturnType<typeof setInterval> | null = null
 
 function startLocalVAD(channelId: string): void {
-  stopVAD('__local__')
-  if (!_localStream) return
-  try {
-    const ctx      = new AudioContext()
-    const source   = ctx.createMediaStreamSource(_localStream)
-    const analyser = ctx.createAnalyser()
-    analyser.fftSize = 512
-    source.connect(analyser)
-    const data = new Uint8Array(analyser.frequencyBinCount)
-    let lastSpeaking = false
-    const interval = setInterval(() => {
-      analyser.getByteFrequencyData(data)
-      const avg      = data.reduce((a, b) => a + b, 0) / data.length
-      const level    = Math.min(100, Math.round(avg * 2.5))
-      inputLevel.set(level)
-      const speaking = avg > 12
-      voiceStore.update(s => ({ ...s, mySpeaking: speaking }))
-      if (speaking !== lastSpeaking) {
-        lastSpeaking = speaking
-        _socket?.emit('voice:speaking', { channelId, speaking })
-      }
-    }, 100)
-    _audioCtxMap.set('__local__', { ctx, analyser, interval })
-  } catch { /* ignore */ }
+  stopLocalVAD()
+  if (!_localChain) return
+  // frequencyBinCount = fftSize / 2 = 256 — taille constante quelque soit la chaîne
+  const data = new Uint8Array(_localChain.analyser.frequencyBinCount)
+  let lastSpeaking = false
+  _localVADInterval = setInterval(() => {
+    // Déréférencement dynamique : si la chaîne est reconstruite (toggle RNNoise),
+    // on utilise automatiquement le nouvel analyser sans recréer l'interval.
+    if (!_localChain) return
+    _localChain.analyser.getByteFrequencyData(data)
+    const avg      = data.reduce((a, b) => a + b, 0) / data.length
+    const level    = Math.min(100, Math.round(avg * 2.5))
+    inputLevel.set(level)
+    const speaking = avg > 12
+    voiceStore.update(s => ({ ...s, mySpeaking: speaking }))
+    if (speaking !== lastSpeaking) {
+      lastSpeaking = speaking
+      _socket?.emit('voice:speaking', { channelId, speaking })
+    }
+  }, 100)
 }
 
-function stopVAD(key: string): void {
-  const entry = _audioCtxMap.get(key)
-  if (entry) {
-    clearInterval(entry.interval)
-    entry.ctx.close().catch(() => {})
-    _audioCtxMap.delete(key)
+function stopLocalVAD(): void {
+  if (_localVADInterval) {
+    clearInterval(_localVADInterval)
+    _localVADInterval = null
   }
+  inputLevel.set(0)
 }
 
 // ── Public API ────────────────────────────────────────────────────
@@ -919,7 +935,7 @@ export function leaveVoice(): void {
   _peerConns.clear()
   _iceQueues.clear()
 
-  stopVAD('__local__')
+  stopLocalVAD()
 
   _localStream?.getTracks().forEach(t => t.stop())
   _localStream = null
