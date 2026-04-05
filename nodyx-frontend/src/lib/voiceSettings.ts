@@ -21,17 +21,27 @@ export interface VoiceSettings {
   broadcastModeEnabled: boolean
   /** Intensité du Mode Broadcast 0.0–1.0 */
   broadcastIntensity:   number
-  /** Bitrate Opus en kbps — appliqué à la prochaine connexion pair */
-  bitrate:              32 | 64 | 128
+  /** Bitrate Opus en kbps — appliqué via SDP (CBR, donc constant) */
+  bitrate:              32 | 64 | 96 | 128
+  /**
+   * Noise gate — coupe le signal sous le seuil entre les prises de parole.
+   * Réduit la transmission du fond sonore en silence.
+   * Implémenté via AudioWorklet (nodyx-noise-gate).
+   */
+  noiseGateEnabled:     boolean
+  /** Seuil du noise gate en dBFS (−80 à 0). Défaut : −50 dBFS */
+  noiseGateThreshold:   number
 }
 
 const DEFAULTS: VoiceSettings = {
   micGain:              1.0,
   highPassEnabled:      true,
-  rnnoiseEnabled:       false,   // off par défaut (package optionnel)
+  rnnoiseEnabled:       false,     // off par défaut (package optionnel)
   broadcastModeEnabled: false,
   broadcastIntensity:   0.6,
-  bitrate:              32,
+  bitrate:              64,        // 64 kbps CBR — qualité vocale correcte sans artefacts
+  noiseGateEnabled:     false,     // off par défaut — l'utilisateur l'active selon son environnement
+  noiseGateThreshold:   -50,       // −50 dBFS — coupe le fond sonore sans couper la voix
 }
 
 function _load(): VoiceSettings {

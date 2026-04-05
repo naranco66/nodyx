@@ -278,14 +278,15 @@ const _offerLocks:     Map<string, boolean> = new Map()  // true = onOffer in pr
 //     → MediaStreamDestinationNode         → WebRTC (track stable)
 
 interface LocalChain {
-  ctx:     AudioContext
-  hp:      BiquadFilterNode
-  eqMud:   BiquadFilterNode
-  eqPres:  BiquadFilterNode
-  eqAir:   BiquadFilterNode
-  gain:    GainNode
-  analyser: AnalyserNode   // tap passif sur gain — partagé avec le VAD local
-  dest:    MediaStreamAudioDestinationNode
+  ctx:       AudioContext
+  hp:        BiquadFilterNode
+  eqMud:     BiquadFilterNode
+  eqPres:    BiquadFilterNode
+  eqAir:     BiquadFilterNode
+  gain:      GainNode
+  analyser:  AnalyserNode        // tap passif sur gain — partagé avec le VAD local
+  noiseGate: AudioWorkletNode | null  // null si worklet non supporté ou désactivé
+  dest:      MediaStreamAudioDestinationNode
 }
 
 let _localChain: LocalChain | null = null
@@ -294,7 +295,9 @@ async function _buildLocalChain(rawStream: MediaStream): Promise<MediaStream> {
   _teardownLocalChain()
 
   const s   = get(voiceSettingsStore)
-  const ctx = new AudioContext({ sampleRate: 48000 })
+  // latencyHint: 'interactive' → demande au navigateur le plus petit buffer possible.
+  // Réduit la latence de traitement audio local de ~50-100ms à ~10-20ms.
+  const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' })
   // AudioContext peut démarrer en état 'suspended' hors geste utilisateur
   // → forcer la reprise pour garantir que dest.stream produit bien de l'audio
   if (ctx.state === 'suspended') await ctx.resume()
@@ -313,6 +316,26 @@ async function _buildLocalChain(rawStream: MediaStream): Promise<MediaStream> {
       head = rnn
     } catch {
       console.debug('[voice] RNNoise non disponible — suppression native active')
+    }
+  }
+
+  // ── Noise Gate AudioWorklet (optionnel) ──────────────────────────
+  // Coupe le signal sous le seuil entre les prises de parole.
+  // Insérée APRÈS RNNoise (signal déjà nettoyé) et AVANT le HPF.
+  let noiseGate: AudioWorkletNode | null = null
+  if (s.noiseGateEnabled) {
+    try {
+      await ctx.audioWorklet.addModule('/audio/noise-gate-processor.js')
+      const threshLinear = Math.pow(10, s.noiseGateThreshold / 20)
+      noiseGate = new AudioWorkletNode(ctx, 'nodyx-noise-gate', {
+        parameterData: { threshold: threshLinear },
+      })
+      head.connect(noiseGate)
+      head = noiseGate
+      console.debug(`[voice] NoiseGate actif @ ${s.noiseGateThreshold} dBFS`)
+    } catch {
+      noiseGate = null
+      console.debug('[voice] NoiseGate AudioWorklet non disponible')
     }
   }
 
@@ -377,7 +400,7 @@ async function _buildLocalChain(rawStream: MediaStream): Promise<MediaStream> {
   gain.connect(keepAlive)
   keepAlive.connect(ctx.destination)
 
-  _localChain = { ctx, hp, eqMud, eqPres, eqAir, gain, analyser, dest }
+  _localChain = { ctx, hp, eqMud, eqPres, eqAir, gain, analyser, noiseGate, dest }
   return dest.stream
 }
 
@@ -404,8 +427,15 @@ export async function updateLocalAudio(patch: Partial<VoiceSettings>): Promise<v
   _localChain.eqPres.gain.value       =  4 * intensity
   _localChain.eqAir.gain.value        =  3 * intensity
 
-  // Toggle RNNoise → rebuild + replaceTrack ─────────────────────
-  if ('rnnoiseEnabled' in patch && _localStream) {
+  // Mise à jour du seuil du noise gate en temps réel (si actif)
+  if ('noiseGateThreshold' in patch && _localChain.noiseGate) {
+    const threshLinear = Math.pow(10, s.noiseGateThreshold / 20)
+    _localChain.noiseGate.parameters.get('threshold')
+      ?.setTargetAtTime(threshLinear, _localChain.ctx.currentTime, 0.01)
+  }
+
+  // Toggle RNNoise ou NoiseGate → rebuild + replaceTrack ──────────
+  if (('rnnoiseEnabled' in patch || 'noiseGateEnabled' in patch) && _localStream) {
     const newStream = await _buildLocalChain(_localStream)
     _processedStream = newStream
     const newTrack  = newStream.getAudioTracks()[0]
@@ -548,37 +578,47 @@ export function setPeerVolume(socketId: string, value: number): void {
 
 // ── Opus SDP tuning ───────────────────────────────────────────────
 
-function applyOpusTuning(sdp: string, bitrateKbps = 32): string {
+function applyOpusTuning(sdp: string, bitrateKbps = 64): string {
   const rtpMatch = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/)
   if (!rtpMatch) return sdp
-  const pt      = rtpMatch[1]
-  const bpsStr  = String(bitrateKbps * 1000)
+  const pt     = rtpMatch[1]
+  const bpsStr = String(bitrateKbps * 1000)
 
-  const existingFmtp = new RegExp(`a=fmtp:${pt} (.*)`)
-  if (existingFmtp.test(sdp)) {
-    return sdp.replace(existingFmtp, (_: string, params: string) => {
-      const existing = Object.fromEntries(params.split(';').map((p: string) => {
-        const idx = p.indexOf('=')
-        return idx !== -1 ? [p.slice(0, idx), p.slice(idx + 1)] : [p, '']
-      }))
-      const merged = {
-        ...existing,
-        maxaveragebitrate: bpsStr,
-        maxplaybackrate:   '48000',
-        useinbandfec:      '1',
-        usedtx:            '0', // DTX off: silence gaps cause bursts on resume — worse under loss
-        cbr:               '0',
-        stereo:            '0', // mono: halves bandwidth
-        sprop_stereo:      '0',
-      }
-      return `a=fmtp:${pt} ${Object.entries(merged).map(([k, v]) => v ? `${k}=${v}` : k).join(';')}`
-    })
-  } else {
-    return sdp.replace(
-      `a=rtpmap:${pt} opus/48000/2\r\n`,
-      `a=rtpmap:${pt} opus/48000/2\r\na=fmtp:${pt} maxaveragebitrate=${bpsStr};maxplaybackrate=48000;useinbandfec=1;usedtx=0;cbr=0;stereo=0;sprop-stereo=0\r\n`,
-    )
+  // ── fmtp Opus ───────────────────────────────────────────────────────────────
+  // cbr=1 : bitrate constant — paquets de taille identique → jitter buffer stable.
+  //         Avec cbr=0 (VBR), le jitter buffer adaptatif grossit sur les longues sessions.
+  // usedtx=0 : pas de Discontinuous Transmission — silence = même flux = pas de burst.
+  // useinbandfec=1 : récupération de paquets perdus sans retransmission (latence stable).
+  // stereo=0 : mono — divise la bande passante, suffisant pour la voix.
+  const opusParams = {
+    maxaveragebitrate: bpsStr,
+    maxplaybackrate:   '48000',
+    useinbandfec:      '1',
+    usedtx:            '0',
+    cbr:               '1',   // ← CRITIQUE : constant bitrate = jitter prévisible
+    stereo:            '0',
+    'sprop-stereo':    '0',
   }
+
+  const fmtpLine = `a=fmtp:${pt} ${Object.entries(opusParams).map(([k, v]) => `${k}=${v}`).join(';')}`
+
+  const existingFmtp = new RegExp(`a=fmtp:${pt} [^\r\n]*`)
+  let out = existingFmtp.test(sdp)
+    ? sdp.replace(existingFmtp, fmtpLine)
+    : sdp.replace(`a=rtpmap:${pt} opus/48000/2\r\n`, `a=rtpmap:${pt} opus/48000/2\r\n${fmtpLine}\r\n`)
+
+  // ── ptime : packetisation 20 ms (1 paquet/20ms — standard VoIP) ────────────
+  // Garantit des paquets à intervalles réguliers → jitter faible et prévisible.
+  if (/a=ptime:\d+/.test(out)) {
+    out = out.replace(/a=ptime:\d+/, 'a=ptime:20')
+  } else {
+    out = out.replace(`a=rtpmap:${pt} opus/48000/2\r\n`, `a=rtpmap:${pt} opus/48000/2\r\na=ptime:20\r\n`)
+  }
+  if (/a=maxptime:\d+/.test(out)) {
+    out = out.replace(/a=maxptime:\d+/, 'a=maxptime:20')
+  }
+
+  return out
 }
 
 // ── Peer connection factory ───────────────────────────────────────
@@ -1029,7 +1069,7 @@ export async function startScreenShare(displaySurface: DisplaySurface = 'monitor
         pc.addTrack(videoTrack, displayStream)
         if (pc.signalingState === 'stable') {
           const offer    = await pc.createOffer()
-          const tunedSdp = applyOpusTuning(offer.sdp ?? '')
+          const tunedSdp = applyOpusTuning(offer.sdp ?? '', get(voiceSettingsStore).bitrate)
           await pc.setLocalDescription({ type: 'offer', sdp: tunedSdp })
           _socket?.emit('voice:offer', { to: socketId, sdp: pc.localDescription, channelId })
         }
@@ -1066,7 +1106,7 @@ export function stopScreenShare(): void {
     }
     if (pc.signalingState === 'stable') {
       pc.createOffer()
-        .then(offer => pc.setLocalDescription({ type: 'offer', sdp: applyOpusTuning(offer.sdp ?? '') }))
+        .then(offer => pc.setLocalDescription({ type: 'offer', sdp: applyOpusTuning(offer.sdp ?? '', get(voiceSettingsStore).bitrate) }))
         .then(() => { _socket?.emit('voice:offer', { to: socketId, sdp: pc.localDescription, channelId }) })
         .catch(() => { /* peer may have disconnected */ })
     }
@@ -1166,7 +1206,7 @@ async function onOffer({ from, sdp, channelId }: { from: string; sdp: RTCSession
     if (pc.signalingState !== 'have-remote-offer') return
 
     const answer   = await pc.createAnswer()
-    const tunedSdp = applyOpusTuning(answer.sdp ?? '')
+    const tunedSdp = applyOpusTuning(answer.sdp ?? '', get(voiceSettingsStore).bitrate)
 
     // Final state guard before writing local description
     if (pc.signalingState !== 'have-remote-offer') return
