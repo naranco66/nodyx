@@ -1,13 +1,12 @@
 <script lang="ts">
 	import type { PageData } from './$types'
 	import { goto } from '$app/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { PUBLIC_API_URL } from '$env/static/public'
 
 	let { data }: { data: PageData } = $props()
 
-	// Token from layout data (HttpOnly cookie — not readable via document.cookie)
-	const token = $derived(($page.data as any).token as string | null)
+	const token = $derived((page.data as any).token as string | null)
 
 	const MAX_FILE_SIZE = 12 * 1024 * 1024 // 12 MB
 
@@ -36,7 +35,6 @@
 	let uploadError = $state('')
 	let showUpload  = $state(false)
 
-	// Upload form state
 	let uploadName        = $state('')
 	let uploadDescription = $state('')
 	let uploadType        = $state('sticker')
@@ -46,26 +44,24 @@
 
 	const isCommunityTab = $derived(data.tab === 'community')
 
-	// For local assets — thumbnail from /uploads/
 	function localAssetUrl(asset: { file_path: string; thumbnail_path?: string }) {
 		const base = PUBLIC_API_URL.replace('/api/v1', '')
 		return `${base}/uploads/${asset.thumbnail_path ?? asset.file_path}`
 	}
 
-	// For federated assets — thumbnail_url is an absolute remote URL
 	function remoteAssetThumb(asset: { thumbnail_url?: string; file_url: string }) {
 		return asset.thumbnail_url ?? asset.file_url
 	}
 
 	function switchTab(tab: 'local' | 'community') {
-		const u = new URL($page.url)
+		const u = new URL(page.url)
 		u.searchParams.set('tab', tab)
 		u.searchParams.delete('offset')
 		goto(u.toString())
 	}
 
 	function applyFilter(type: string) {
-		const u = new URL($page.url)
+		const u = new URL(page.url)
 		if (type) u.searchParams.set('type', type)
 		else u.searchParams.delete('type')
 		u.searchParams.delete('offset')
@@ -74,7 +70,7 @@
 
 	function submitSearch(e: Event) {
 		e.preventDefault()
-		const u = new URL($page.url)
+		const u = new URL(page.url)
 		if (searchInput.trim()) u.searchParams.set('q', searchInput.trim())
 		else u.searchParams.delete('q')
 		u.searchParams.delete('offset')
@@ -129,7 +125,7 @@
 			uploadName    = ''
 			uploadDescription = ''
 			uploadTags    = ''
-			goto($page.url.pathname, { invalidateAll: true })
+			goto(page.url.pathname, { invalidateAll: true })
 		} else {
 			const json  = await res.json()
 			uploadError = json.error ?? 'Erreur lors de l\'upload.'
@@ -141,135 +137,135 @@
 	<title>Bibliothèque — Nodyx</title>
 </svelte:head>
 
-<div class="max-w-6xl mx-auto px-4 py-8">
-
-	<!-- Header -->
-	<div class="flex items-center justify-between mb-6">
-		<div>
-			<h1 class="text-2xl font-bold text-white">Bibliothèque</h1>
-			<p class="text-sm text-gray-400 mt-0.5">Assets créés par la communauté — cadres, badges, stickers et plus</p>
+<!-- ── Header ──────────────────────────────────────────────────────────────── -->
+<div class="lib-header">
+	<div class="lib-header-row">
+		<div class="lib-title-block">
+			<h1 class="lib-title">Bibliothèque</h1>
+			<p class="lib-subtitle">Assets créés par la communauté — cadres, badges, stickers et plus</p>
 		</div>
-		{#if !isCommunityTab && token}
-			<button
-				onclick={() => showUpload = !showUpload}
-				class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-semibold text-white transition-colors"
-			>
-				+ Partager un asset
-			</button>
-		{/if}
+
+		<div class="lib-header-actions">
+			<form onsubmit={submitSearch} class="lib-search-form">
+				<input
+					bind:value={searchInput}
+					placeholder={isCommunityTab ? 'Rechercher dans toutes les instances…' : 'Rechercher un asset…'}
+					class="lib-search-input"
+				/>
+				<button type="submit" class="lib-search-btn" aria-label="Rechercher">
+					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+					</svg>
+				</button>
+			</form>
+			{#if !isCommunityTab && token}
+				<button onclick={() => showUpload = !showUpload} class="lib-upload-btn">
+					+ Partager
+				</button>
+			{/if}
+		</div>
 	</div>
 
-	<!-- Tab switcher -->
-	<div class="flex gap-1 mb-6 p-1 bg-gray-900 rounded-xl border border-gray-800 w-fit">
+	<!-- Tabs -->
+	<div class="lib-tabs">
 		<button
 			onclick={() => switchTab('local')}
-			class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {!isCommunityTab ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}"
+			class="lib-tab {!isCommunityTab ? 'lib-tab--active' : ''}"
 		>
-			🏠 Ma communauté
+			Ma communauté
 		</button>
 		<button
 			onclick={() => switchTab('community')}
-			class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {isCommunityTab ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}"
+			class="lib-tab {isCommunityTab ? 'lib-tab--active' : ''}"
 		>
-			🌐 Toutes les instances
+			Toutes les instances
 		</button>
 	</div>
+</div>
 
-	<!-- Upload panel (local only) -->
-	{#if showUpload && !isCommunityTab}
-		<div class="mb-6 p-5 rounded-xl border border-gray-700 bg-gray-900">
-			<h2 class="text-base font-semibold text-white mb-4">Partager un asset</h2>
-			{#if uploadError}
-				<p class="mb-3 text-sm text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">{uploadError}</p>
-			{/if}
-			<form onsubmit={submitUpload} class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-				<div class="sm:col-span-2 flex gap-4 items-start">
-					<label class="flex-1">
-						<span class="block text-xs font-medium text-gray-400 mb-1">Fichier *</span>
-						<input type="file" onchange={onFileChange} accept="image/*,audio/*" required
-							class="block w-full text-sm text-gray-300 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:bg-gray-700 file:text-gray-200 hover:file:bg-gray-600" />
-					</label>
-					{#if uploadPreview}
-						<img src={uploadPreview} alt="preview" class="w-20 h-20 rounded-lg object-cover border border-gray-700 shrink-0" />
-					{/if}
+<!-- ── Upload panel ─────────────────────────────────────────────────────────── -->
+{#if showUpload && !isCommunityTab}
+	<div class="lib-upload-panel">
+		<h2 class="lib-upload-title">Partager un asset</h2>
+		{#if uploadError}
+			<p class="lib-upload-error">{uploadError}</p>
+		{/if}
+		<form onsubmit={submitUpload} class="lib-upload-form">
+			<div class="lib-upload-file-row">
+				<label class="lib-field lib-field--grow">
+					<span class="lib-label">Fichier *</span>
+					<input type="file" onchange={onFileChange} accept="image/*,audio/*" required
+						class="lib-file-input" />
+				</label>
+				{#if uploadPreview}
+					<img src={uploadPreview} alt="preview" class="lib-preview-thumb" />
+				{/if}
+			</div>
+			<div class="lib-upload-row2">
+				<div class="lib-field">
+					<label for="lib-name" class="lib-label">Nom *</label>
+					<input id="lib-name" bind:value={uploadName} required maxlength="100" placeholder="Ex: Cadre doré"
+						class="lib-input" />
 				</div>
-				<div>
-					<label class="block text-xs font-medium text-gray-400 mb-1">Nom *</label>
-					<input bind:value={uploadName} required maxlength="100" placeholder="Ex: Cadre doré"
-						class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500" />
-				</div>
-				<div>
-					<label class="block text-xs font-medium text-gray-400 mb-1">Type *</label>
-					<select bind:value={uploadType}
-						class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm text-white focus:outline-none focus:border-indigo-500">
+				<div class="lib-field">
+					<label for="lib-type" class="lib-label">Type *</label>
+					<select id="lib-type" bind:value={uploadType} class="lib-select">
 						{#each ASSET_TYPES.slice(1) as t}
 							<option value={t.value}>{t.label}</option>
 						{/each}
 					</select>
 				</div>
-				<div class="sm:col-span-2">
-					<label class="block text-xs font-medium text-gray-400 mb-1">Description</label>
-					<textarea bind:value={uploadDescription} rows="2" placeholder="Décris ton asset..."
-						class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 resize-none"></textarea>
-				</div>
-				<div class="sm:col-span-2">
-					<label class="block text-xs font-medium text-gray-400 mb-1">Tags (séparés par des virgules)</label>
-					<input bind:value={uploadTags} placeholder="pixel-art, doré, frame"
-						class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500" />
-				</div>
-				{#if currentTypeTip}
-				<div class="sm:col-span-2 flex gap-3 px-3 py-3 rounded-lg bg-indigo-950/50 border border-indigo-800/40 text-xs text-indigo-300">
-					<span class="text-base shrink-0 mt-0.5">💡</span>
-					<div class="leading-relaxed">
-						<span class="font-semibold text-indigo-200">Conseils · </span>{currentTypeTip}
-						<span class="block mt-1 text-indigo-400/70">Taille max : <strong class="text-indigo-300">12 Mo</strong></span>
+			</div>
+			<div class="lib-field lib-field--full">
+				<label for="lib-desc" class="lib-label">Description</label>
+				<textarea id="lib-desc" bind:value={uploadDescription} rows="2" placeholder="Décris ton asset…"
+					class="lib-textarea"></textarea>
+			</div>
+			<div class="lib-field lib-field--full">
+				<label for="lib-tags" class="lib-label">Tags (séparés par des virgules)</label>
+				<input id="lib-tags" bind:value={uploadTags} placeholder="pixel-art, doré, frame"
+					class="lib-input" />
+			</div>
+			{#if currentTypeTip}
+				<div class="lib-tip lib-field--full">
+					<span class="lib-tip-icon">💡</span>
+					<div class="lib-tip-body">
+						<span class="lib-tip-title">Conseils · </span>{currentTypeTip}
+						<span class="lib-tip-size">Taille max : <strong>12 Mo</strong></span>
 					</div>
 				</div>
-				{/if}
-				<div class="sm:col-span-2 flex gap-3">
-					<button type="submit" disabled={uploading}
-						class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-sm font-semibold text-white transition-colors">
-						{uploading ? 'Upload en cours…' : 'Partager'}
-					</button>
-					<button type="button" onclick={() => showUpload = false}
-						class="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm text-gray-300 transition-colors">
-						Annuler
-					</button>
-				</div>
-			</form>
-		</div>
-	{/if}
-
-	<!-- Filters + Search -->
-	<div class="flex flex-col sm:flex-row gap-3 mb-6">
-		<form onsubmit={submitSearch} class="flex gap-2 flex-1">
-			<input
-				bind:value={searchInput}
-				placeholder={isCommunityTab ? 'Rechercher dans toutes les instances…' : 'Rechercher un asset…'}
-				class="flex-1 px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
-			/>
-			<button type="submit" class="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm text-gray-200 transition-colors">
-				Rechercher
-			</button>
-		</form>
-		<div class="flex gap-1.5 flex-wrap">
-			{#each ASSET_TYPES as t}
-				<button
-					onclick={() => applyFilter(t.value)}
-					class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors {data.type === t.value ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'}"
-				>
-					{t.value ? TYPE_ICONS[t.value] + ' ' : ''}{t.label}
+			{/if}
+			<div class="lib-upload-actions lib-field--full">
+				<button type="submit" disabled={uploading} class="lib-submit-btn">
+					{uploading ? 'Upload en cours…' : 'Partager'}
 				</button>
-			{/each}
-		</div>
+				<button type="button" onclick={() => showUpload = false} class="lib-cancel-btn">
+					Annuler
+				</button>
+			</div>
+		</form>
 	</div>
+{/if}
 
-	<!-- Assets grid -->
+<!-- ── Type filter strip ─────────────────────────────────────────────────────── -->
+<div class="lib-filters">
+	{#each ASSET_TYPES as t}
+		<button
+			onclick={() => applyFilter(t.value)}
+			class="lib-filter-btn {data.type === t.value ? 'lib-filter-btn--active' : ''}"
+		>
+			{t.value ? TYPE_ICONS[t.value] + ' ' : ''}{t.label}
+		</button>
+	{/each}
+</div>
+
+<!-- ── Assets grid ───────────────────────────────────────────────────────────── -->
+<div class="lib-body">
 	{#if data.assets.length === 0}
-		<div class="text-center py-16 text-gray-500">
-			<p class="text-4xl mb-3">{isCommunityTab ? '🌐' : '📭'}</p>
-			<p class="font-medium">{isCommunityTab ? 'Aucun asset fédéré pour le moment' : 'Aucun asset trouvé'}</p>
-			<p class="text-sm mt-1">
+		<div class="lib-empty">
+			<p class="lib-empty-icon">{isCommunityTab ? '🌐' : '📭'}</p>
+			<p class="lib-empty-main">{isCommunityTab ? 'Aucun asset fédéré pour le moment' : 'Aucun asset trouvé'}</p>
+			<p class="lib-empty-sub">
 				{#if isCommunityTab}
 					Les assets apparaissent ici quand d'autres instances les partagent.
 				{:else}
@@ -279,67 +275,57 @@
 		</div>
 	{:else}
 		{#if isCommunityTab}
-			<!-- Federated grid — links open directly on the remote instance -->
-			<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+			<div class="lib-grid">
 				{#each data.assets as asset}
-					<a
-						href={asset.file_url}
-						target="_blank"
-						rel="noopener noreferrer"
-						class="group rounded-xl border border-gray-800 bg-gray-900 hover:border-gray-600 transition-all overflow-hidden"
-					>
+					<a href={asset.file_url} target="_blank" rel="noopener noreferrer" class="lib-card">
 						{#if asset.thumbnail_url || asset.file_url}
-							<div class="aspect-square overflow-hidden bg-gray-800">
-								<img src={remoteAssetThumb(asset)} alt={asset.name}
-									class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+							<div class="lib-card-thumb">
+								<img src={remoteAssetThumb(asset)} alt={asset.name} class="lib-card-img"
 									onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
 							</div>
 						{:else}
-							<div class="aspect-square flex items-center justify-center bg-gray-800 text-3xl">
+							<div class="lib-card-thumb lib-card-thumb--icon">
 								{TYPE_ICONS[asset.asset_type] ?? '📦'}
 							</div>
 						{/if}
-						<div class="p-2">
-							<p class="text-xs font-medium text-white truncate">{asset.name}</p>
-							<p class="text-[10px] text-gray-500 mt-0.5 truncate">
+						<div class="lib-card-info">
+							<p class="lib-card-name">{asset.name}</p>
+							<p class="lib-card-meta">
 								{TYPE_ICONS[asset.asset_type] ?? ''} {asset.asset_type}
 								&nbsp;·&nbsp;
-								<span class="text-indigo-400">{asset.instance_slug}</span>
+								<span class="lib-card-instance">{asset.instance_slug}</span>
 							</p>
 						</div>
 					</a>
 				{/each}
 			</div>
 		{:else}
-			<!-- Local grid -->
-			<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+			<div class="lib-grid">
 				{#each data.assets as asset}
-					<a href="/library/{asset.id}" class="group rounded-xl border border-gray-800 bg-gray-900 hover:border-gray-600 transition-all overflow-hidden">
+					<a href="/library/{asset.id}" class="lib-card">
 						{#if asset.thumbnail_path || asset.mime_type?.startsWith('image/')}
-							<div class="aspect-square overflow-hidden bg-gray-800">
-								<img src={localAssetUrl(asset)} alt={asset.name}
-									class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
+							<div class="lib-card-thumb">
+								<img src={localAssetUrl(asset)} alt={asset.name} class="lib-card-img" />
 							</div>
 						{:else}
-							<div class="aspect-square flex items-center justify-center bg-gray-800 text-3xl">
+							<div class="lib-card-thumb lib-card-thumb--icon">
 								{TYPE_ICONS[asset.asset_type] ?? '📦'}
 							</div>
 						{/if}
-						<div class="p-2">
-							<p class="text-xs font-medium text-white truncate">{asset.name}</p>
-							<p class="text-[10px] text-gray-500 mt-0.5">{TYPE_ICONS[asset.asset_type] ?? ''} {asset.asset_type} · {asset.downloads} dl</p>
+						<div class="lib-card-info">
+							<p class="lib-card-name">{asset.name}</p>
+							<p class="lib-card-meta">{TYPE_ICONS[asset.asset_type] ?? ''} {asset.asset_type} · {asset.downloads} dl</p>
 						</div>
 					</a>
 				{/each}
 			</div>
 		{/if}
 
-		<!-- Pagination -->
 		{#if data.assets.length === 24}
-			<div class="flex justify-center mt-8">
+			<div class="lib-pagination">
 				<a
 					href="?{new URLSearchParams({ tab: data.tab, q: data.q, type: data.type, offset: String(data.offset + 24) })}"
-					class="px-5 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm text-gray-200 transition-colors"
+					class="lib-next-btn"
 				>
 					Page suivante →
 				</a>
@@ -347,3 +333,473 @@
 		{/if}
 	{/if}
 </div>
+
+<style>
+/* ── Header ─────────────────────────────────────────────────────────────────── */
+.lib-header {
+	position: sticky;
+	top: 0;
+	z-index: 20;
+	background: rgba(9, 9, 15, 0.92);
+	backdrop-filter: blur(16px);
+	border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+	padding: 20px 28px 0;
+}
+
+.lib-header-row {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	margin-bottom: 16px;
+	flex-wrap: wrap;
+}
+
+.lib-title-block {
+	flex: 0 0 auto;
+}
+
+.lib-title {
+	font-size: 1.125rem;
+	font-weight: 700;
+	color: #fff;
+	margin: 0 0 2px;
+	letter-spacing: -0.01em;
+}
+
+.lib-subtitle {
+	font-size: 0.75rem;
+	color: rgba(255, 255, 255, 0.35);
+	margin: 0;
+}
+
+.lib-header-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-left: auto;
+}
+
+/* ── Search ─────────────────────────────────────────────────────────────────── */
+.lib-search-form {
+	display: flex;
+}
+
+.lib-search-input {
+	background: rgba(255, 255, 255, 0.04);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	border-right: none;
+	padding: 7px 14px;
+	color: #fff;
+	font-size: 0.8125rem;
+	outline: none;
+	width: 240px;
+	transition: border-color 0.15s;
+}
+
+.lib-search-input::placeholder {
+	color: rgba(255, 255, 255, 0.25);
+}
+
+.lib-search-input:focus {
+	border-color: rgba(99, 102, 241, 0.5);
+}
+
+.lib-search-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 7px 12px;
+	background: rgba(255, 255, 255, 0.06);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	color: rgba(255, 255, 255, 0.5);
+	cursor: pointer;
+	transition: background 0.15s, color 0.15s;
+}
+
+.lib-search-btn:hover {
+	background: rgba(255, 255, 255, 0.1);
+	color: #fff;
+}
+
+.lib-upload-btn {
+	padding: 7px 14px;
+	background: rgba(99, 102, 241, 0.85);
+	border: none;
+	color: #fff;
+	font-size: 0.8125rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background 0.15s;
+	white-space: nowrap;
+}
+
+.lib-upload-btn:hover {
+	background: rgb(99, 102, 241);
+}
+
+/* ── Tabs ───────────────────────────────────────────────────────────────────── */
+.lib-tabs {
+	display: flex;
+	align-items: center;
+}
+
+.lib-tab {
+	padding: 9px 18px;
+	font-size: 0.75rem;
+	font-weight: 500;
+	color: rgba(255, 255, 255, 0.35);
+	background: none;
+	border: none;
+	border-bottom: 2px solid transparent;
+	cursor: pointer;
+	transition: color 0.15s, border-color 0.15s;
+	white-space: nowrap;
+}
+
+.lib-tab:hover {
+	color: rgba(255, 255, 255, 0.7);
+}
+
+.lib-tab--active {
+	color: #a5b4fc;
+	border-bottom-color: #a5b4fc;
+}
+
+/* ── Filter strip ───────────────────────────────────────────────────────────── */
+.lib-filters {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex-wrap: wrap;
+	padding: 12px 28px;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.lib-filter-btn {
+	padding: 5px 12px;
+	font-size: 0.75rem;
+	font-weight: 500;
+	background: rgba(255, 255, 255, 0.03);
+	border: 1px solid rgba(255, 255, 255, 0.07);
+	color: rgba(255, 255, 255, 0.35);
+	cursor: pointer;
+	transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.lib-filter-btn:hover {
+	background: rgba(255, 255, 255, 0.07);
+	color: rgba(255, 255, 255, 0.75);
+}
+
+.lib-filter-btn--active {
+	background: rgba(99, 102, 241, 0.15);
+	border-color: rgba(99, 102, 241, 0.35);
+	color: #a5b4fc;
+}
+
+/* ── Upload panel ───────────────────────────────────────────────────────────── */
+.lib-upload-panel {
+	margin: 0;
+	padding: 24px 28px;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+	background: rgba(255, 255, 255, 0.015);
+}
+
+.lib-upload-title {
+	font-size: 0.9375rem;
+	font-weight: 600;
+	color: #fff;
+	margin: 0 0 16px;
+}
+
+.lib-upload-error {
+	font-size: 0.8125rem;
+	color: #fca5a5;
+	background: rgba(239, 68, 68, 0.08);
+	border: 1px solid rgba(239, 68, 68, 0.2);
+	padding: 8px 12px;
+	margin-bottom: 14px;
+}
+
+.lib-upload-form {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 14px;
+}
+
+.lib-upload-file-row {
+	grid-column: 1 / -1;
+	display: flex;
+	gap: 16px;
+	align-items: flex-start;
+}
+
+.lib-upload-row2 {
+	grid-column: 1 / -1;
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 14px;
+}
+
+.lib-field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.lib-field--grow {
+	flex: 1;
+}
+
+.lib-field--full {
+	grid-column: 1 / -1;
+}
+
+.lib-label {
+	font-size: 0.6875rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: rgba(255, 255, 255, 0.35);
+}
+
+.lib-input,
+.lib-select,
+.lib-textarea {
+	background: rgba(255, 255, 255, 0.04);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	padding: 8px 12px;
+	color: #fff;
+	font-size: 0.8125rem;
+	outline: none;
+	transition: border-color 0.15s;
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.lib-textarea {
+	resize: none;
+}
+
+.lib-input::placeholder,
+.lib-textarea::placeholder {
+	color: rgba(255, 255, 255, 0.2);
+}
+
+.lib-input:focus,
+.lib-select:focus,
+.lib-textarea:focus {
+	border-color: rgba(99, 102, 241, 0.5);
+}
+
+.lib-select {
+	appearance: none;
+}
+
+.lib-file-input {
+	font-size: 0.8125rem;
+	color: rgba(255, 255, 255, 0.6);
+}
+
+.lib-preview-thumb {
+	width: 72px;
+	height: 72px;
+	object-fit: cover;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	flex-shrink: 0;
+}
+
+.lib-tip {
+	display: flex;
+	gap: 10px;
+	padding: 10px 14px;
+	background: rgba(99, 102, 241, 0.06);
+	border: 1px solid rgba(99, 102, 241, 0.15);
+	font-size: 0.75rem;
+	color: #a5b4fc;
+}
+
+.lib-tip-icon {
+	font-size: 1rem;
+	flex-shrink: 0;
+	margin-top: 1px;
+}
+
+.lib-tip-body {
+	line-height: 1.5;
+}
+
+.lib-tip-title {
+	font-weight: 600;
+	color: #c7d2fe;
+}
+
+.lib-tip-size {
+	display: block;
+	margin-top: 4px;
+	color: rgba(165, 180, 252, 0.6);
+}
+
+.lib-upload-actions {
+	display: flex;
+	gap: 10px;
+}
+
+.lib-submit-btn {
+	padding: 8px 18px;
+	background: rgba(99, 102, 241, 0.85);
+	border: none;
+	color: #fff;
+	font-size: 0.8125rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background 0.15s;
+}
+
+.lib-submit-btn:hover:not(:disabled) {
+	background: rgb(99, 102, 241);
+}
+
+.lib-submit-btn:disabled {
+	opacity: 0.5;
+}
+
+.lib-cancel-btn {
+	padding: 8px 18px;
+	background: rgba(255, 255, 255, 0.05);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	color: rgba(255, 255, 255, 0.5);
+	font-size: 0.8125rem;
+	cursor: pointer;
+	transition: background 0.15s, color 0.15s;
+}
+
+.lib-cancel-btn:hover {
+	background: rgba(255, 255, 255, 0.09);
+	color: rgba(255, 255, 255, 0.8);
+}
+
+/* ── Body ───────────────────────────────────────────────────────────────────── */
+.lib-body {
+	padding: 24px 28px 48px;
+}
+
+/* ── Grid ───────────────────────────────────────────────────────────────────── */
+.lib-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+	gap: 1px;
+	background: rgba(255, 255, 255, 0.04);
+}
+
+.lib-card {
+	display: block;
+	background: rgba(9, 9, 15, 1);
+	text-decoration: none;
+	transition: background 0.15s;
+	overflow: hidden;
+}
+
+.lib-card:hover {
+	background: rgba(255, 255, 255, 0.03);
+}
+
+.lib-card:hover .lib-card-img {
+	transform: scale(1.04);
+}
+
+.lib-card-thumb {
+	aspect-ratio: 1;
+	overflow: hidden;
+	background: rgba(255, 255, 255, 0.03);
+}
+
+.lib-card-thumb--icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 2rem;
+}
+
+.lib-card-img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	transition: transform 0.2s;
+}
+
+.lib-card-info {
+	padding: 8px 10px;
+}
+
+.lib-card-name {
+	font-size: 0.75rem;
+	font-weight: 500;
+	color: rgba(255, 255, 255, 0.8);
+	margin: 0 0 3px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.lib-card-meta {
+	font-size: 0.6875rem;
+	color: rgba(255, 255, 255, 0.25);
+	margin: 0;
+}
+
+.lib-card-instance {
+	color: #a5b4fc;
+}
+
+/* ── Pagination ─────────────────────────────────────────────────────────────── */
+.lib-pagination {
+	display: flex;
+	justify-content: center;
+	margin-top: 32px;
+}
+
+.lib-next-btn {
+	padding: 9px 22px;
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	background: rgba(255, 255, 255, 0.03);
+	color: rgba(255, 255, 255, 0.6);
+	font-size: 0.8125rem;
+	text-decoration: none;
+	transition: background 0.15s, color 0.15s;
+}
+
+.lib-next-btn:hover {
+	background: rgba(255, 255, 255, 0.06);
+	color: #fff;
+}
+
+/* ── Empty state ────────────────────────────────────────────────────────────── */
+.lib-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 80px 20px;
+	text-align: center;
+}
+
+.lib-empty-icon {
+	font-size: 2.5rem;
+	margin: 0 0 14px;
+	opacity: 0.25;
+}
+
+.lib-empty-main {
+	font-size: 0.875rem;
+	font-weight: 500;
+	color: rgba(255, 255, 255, 0.4);
+	margin: 0 0 6px;
+}
+
+.lib-empty-sub {
+	font-size: 0.75rem;
+	color: rgba(255, 255, 255, 0.2);
+	margin: 0;
+}
+</style>
