@@ -624,12 +624,12 @@ export function registerSocketIO(server: Server): void {
 
         const isEncrypted = data.is_encrypted === true
           && typeof data.encryption_nonce === 'string'
-          && /^[A-Za-z0-9+/=]{16,32}$/.test(data.encryption_nonce)  // nonce 12 bytes = 16 chars base64
+          && /^[A-Za-z0-9+\/=]{16,32}$/.test(data.encryption_nonce)  // nonce 12 bytes = 16 chars base64
 
         let clean: string
         if (isEncrypted) {
           // Message E2E : valider que le contenu est du base64 valide, ne pas sanitizer
-          if (!/^[A-Za-z0-9+/=\n]{1,20000}$/.test(raw)) return
+          if (!/^[A-Za-z0-9+\/=\n]{1,20000}$/.test(raw)) return
           clean = raw
         } else {
           clean = sanitize(raw)

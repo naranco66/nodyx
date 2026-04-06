@@ -28,6 +28,8 @@
 		// Texte déchiffré en local (jamais persisté)
 		_decrypted?: string
 		_decryptFailed?: boolean
+		_barbarizing?: boolean   // animation en cours côté réceptionnaire
+		_barbarText?: string     // texte barbarisé affiché pendant l'animation
 	}
 
 	interface Conversation {
@@ -55,7 +57,11 @@
 		if (!conversation) return
 		try {
 			// 1. Init keypair local + enregistrer sur le serveur
-			await registerPublicKey(data.token)
+			const registered = await registerPublicKey(data.token)
+			if (!registered) {
+				e2eStatus = 'inactive'
+				return
+			}
 
 			// 2. Récupérer la clé publique du peer
 			peerPublicKey = await fetchPeerPublicKey(conversation.other_username, data.token)
@@ -73,12 +79,11 @@
 				e2eStatus = 'partial' // moi oui, peer non encore
 			}
 
-			
 			// 5. Déchiffrer les messages chiffrés déjà chargés
 			await decryptPendingMessages()
 		} catch {
 			e2eStatus = 'inactive'
-					}
+		}
 	}
 
 	async function decryptPendingMessages() {
@@ -137,12 +142,25 @@
 		await tick()
 		scrollToBottom()
 
-		// Écoute socket DM
-		const sock = getSocket()
-		if (sock) {
+		// Écoute socket DM — attendre que le socket soit prêt si nécessaire
+		const attachListeners = (sock: ReturnType<typeof getSocket>) => {
+			if (!sock) return
+			sock.off('dm:message', onDmMessage)  // éviter les doublons
+			sock.off('dm:typing', onDmTyping)
 			sock.on('dm:message', onDmMessage)
 			sock.on('dm:typing', onDmTyping)
 			sock.on('dm:read_ack', () => {})
+		}
+		const sock = getSocket()
+		if (sock) {
+			attachListeners(sock)
+		} else {
+			// Socket pas encore initialisé — poll court jusqu'à disponibilité
+			const interval = setInterval(() => {
+				const s = getSocket()
+				if (s) { clearInterval(interval); attachListeners(s) }
+			}, 100)
+			setTimeout(() => clearInterval(interval), 5000)
 		}
 
 		// Init E2E après le mount
@@ -160,14 +178,35 @@
 	async function onDmMessage(msg: DmMessage) {
 		if (msg.conversation_id !== conversationId) return
 
-		// Déchiffrer si E2E actif
 		if (msg.is_encrypted && msg.encryption_nonce && peerPublicKey) {
-			const plain = await decryptDM(msg.content, msg.encryption_nonce, peerPublicKey, data.token)
-			msg = { ...msg, _decrypted: plain ?? undefined, _decryptFailed: plain === null }
+			// 1. Afficher d'abord le message barbarisé
+			if (esyKey) {
+				const barbarText = barbarizeVisual(msg.content.slice(0, 40), esyKey, 0.6)
+				msg = { ...msg, _barbarizing: true, _barbarText: barbarText }
+				messages = [...messages, msg]
+				tick().then(scrollToBottom)
+
+				// 2. Déchiffrer pendant l'animation (350ms)
+				await new Promise(r => setTimeout(r, 350))
+				const plain = await decryptDM(msg.content, msg.encryption_nonce!, peerPublicKey, data.token)
+
+				// 3. Remplacer par le texte clair
+				messages = messages.map(m =>
+					m.id === msg.id
+						? { ...m, _barbarizing: false, _barbarText: undefined, _decrypted: plain ?? undefined, _decryptFailed: plain === null }
+						: m
+				)
+			} else {
+				const plain = await decryptDM(msg.content, msg.encryption_nonce, peerPublicKey, data.token)
+				msg = { ...msg, _decrypted: plain ?? undefined, _decryptFailed: plain === null }
+				messages = [...messages, msg]
+				tick().then(scrollToBottom)
+			}
+		} else {
+			messages = [...messages, msg]
+			tick().then(scrollToBottom)
 		}
 
-		messages = [...messages, msg]
-		tick().then(scrollToBottom)
 		if (document.hasFocus()) markRead()
 	}
 
@@ -319,9 +358,10 @@
 	// Message texte à afficher (déchiffré si E2E, brut sinon)
 	function displayContent(msg: DmMessage): string {
 		if (msg.is_encrypted) {
+			if (msg._barbarizing && msg._barbarText) return msg._barbarText
 			if (msg._decrypted !== undefined) return msg._decrypted
-			if (msg._decryptFailed) return '🔒 ' + tFn('dm.decrypt_failed')
-			return '🔒 …'
+			if (msg._decryptFailed) return tFn('dm.decrypt_failed')
+			return '…'
 		}
 		return msg.content
 	}
@@ -535,6 +575,7 @@
 								</div>
 							{:else}
 								<div class="relative px-3.5 py-2 text-sm break-words leading-relaxed
+									{msg._barbarizing ? 'font-mono tracking-widest opacity-60 animate-pulse' : ''}
 									{isMine
 										? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/10 '
 											+ (first ? 'rounded-t-2xl rounded-bl-2xl rounded-br-md' : last ? 'rounded-b-2xl rounded-tl-2xl rounded-tr-md' : 'rounded-l-2xl rounded-r-md')
