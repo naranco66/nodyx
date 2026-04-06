@@ -1077,5 +1077,9 @@
   "dm.select_conversation": "Choisissez une conversation",
   "dm.select_conversation_hint": "Sélectionnez un message à gauche ou cherchez un membre pour en démarrer un.",
   "dm.search_new_hint": "Cherchez un membre pour écrire",
-  "dm.message_placeholder_user": "Message à {{user}}…"
+  "dm.message_placeholder_user": "Message à {{user}}…",
+  "dm.encrypted_message": "Message chiffré E2E",
+  "dm.decrypt_failed": "Impossible de déchiffrer",
+  "dm.e2e_tooltip_active": "Chiffrement bout en bout actif",
+  "dm.e2e_tooltip_partial": "Chiffrement partiel — l'autre n'a pas encore activé E2E"
 }

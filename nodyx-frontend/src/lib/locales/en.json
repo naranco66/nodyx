@@ -1077,5 +1077,9 @@
   "dm.select_conversation": "Your messages",
   "dm.select_conversation_hint": "Select a conversation on the left, or search for a member to start a new one.",
   "dm.search_new_hint": "Search for someone to message",
-  "dm.message_placeholder_user": "Message {{user}}…"
+  "dm.message_placeholder_user": "Message {{user}}…",
+  "dm.encrypted_message": "E2E encrypted message",
+  "dm.decrypt_failed": "Unable to decrypt",
+  "dm.e2e_tooltip_active": "End-to-end encryption active",
+  "dm.e2e_tooltip_partial": "Partial encryption — peer hasn't enabled E2E yet"
 }

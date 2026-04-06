@@ -3,6 +3,11 @@
 	import { onMount, onDestroy, tick } from 'svelte'
 	import { getSocket, dmUnreadStore } from '$lib/socket'
 	import { apiFetch } from '$lib/api'
+	import {
+		registerPublicKey, fetchPeerPublicKey,
+		encryptDM, decryptDM, loadEsyKey, barbarizeVisual,
+		type E2EStatus, type EsyKey
+	} from '$lib/e2e'
 
 	const tFn = $derived($t)
 
@@ -18,6 +23,11 @@
 		content: string
 		created_at: string
 		deleted_at: string | null
+		is_encrypted?: boolean
+		encryption_nonce?: string | null
+		// Texte déchiffré en local (jamais persisté)
+		_decrypted?: string
+		_decryptFailed?: boolean
 	}
 
 	interface Conversation {
@@ -33,8 +43,55 @@
 	let conversation: Conversation | null = $state(data.conversation ?? null)
 	let conversationId = $state(data.conversationId)
 
-	// Quand on switch d'interlocuteur, SvelteKit réutilise le composant sans le détruire.
-	// On réinitialise l'état local dès que data change (nouveau [id] dans l'URL).
+	// ── E2E state ──────────────────────────────────────────────────────────────
+	let e2eStatus = $state<E2EStatus>('unknown')
+	let peerPublicKey: string | null = $state(null)
+	let esyKey: EsyKey | null = $state(null)
+	let esyFingerprint: string | null = $state(null)
+	// Animation d'envoi — texte "barbarisé" affiché brièvement avant envoi
+	let sendingVisual: string | null = $state(null)
+
+	async function initE2E() {
+		if (!conversation) return
+		try {
+			// 1. Init keypair local + enregistrer sur le serveur
+			await registerPublicKey(data.token)
+
+			// 2. Récupérer la clé publique du peer
+			peerPublicKey = await fetchPeerPublicKey(conversation.other_username, data.token)
+
+			// 3. Charger la clé ESY de l'instance
+			try {
+				esyKey = await loadEsyKey(data.token)
+				esyFingerprint = esyKey.fingerprint
+			} catch { esyKey = null }
+
+			// 4. Déterminer le statut E2E
+			if (peerPublicKey) {
+				e2eStatus = 'active'
+			} else {
+				e2eStatus = 'partial' // moi oui, peer non encore
+			}
+
+			
+			// 5. Déchiffrer les messages chiffrés déjà chargés
+			await decryptPendingMessages()
+		} catch {
+			e2eStatus = 'inactive'
+					}
+	}
+
+	async function decryptPendingMessages() {
+		if (!peerPublicKey) return
+		const updated = await Promise.all(messages.map(async (m) => {
+			if (!m.is_encrypted || !m.encryption_nonce || m._decrypted !== undefined) return m
+			const plain = await decryptDM(m.content, m.encryption_nonce, peerPublicKey!, data.token)
+			return { ...m, _decrypted: plain ?? undefined, _decryptFailed: plain === null }
+		}))
+		messages = updated
+	}
+
+	// Quand on switch de conversation
 	$effect(() => {
 		if (data.conversationId === conversationId) return
 		conversationId = data.conversationId
@@ -44,9 +101,16 @@
 		messageInput = ''
 		typingLabel = ''
 		typingUsers.clear()
+		peerPublicKey = null
+		e2eStatus = 'unknown'
+
+		sendingVisual = null
 		markRead()
 		dmUnreadStore.set(0)
-		tick().then(() => scrollToBottom())
+		tick().then(async () => {
+			scrollToBottom()
+			await initE2E()
+		})
 	})
 
 	let messageInput = $state('')
@@ -59,7 +123,6 @@
 	let currentUserId = $state('')
 	let sendingMsg = $state(false)
 
-	// Obtenir l'id de l'user courant
 	onMount(async () => {
 		const res = await apiFetch(fetch, '/users/me', {
 			headers: { Authorization: `Bearer ${data.token}` }
@@ -69,11 +132,8 @@
 			currentUserId = u.user?.id ?? ''
 		}
 
-		// Marquer comme lu
 		markRead()
 		dmUnreadStore.set(0)
-
-		// Scroll en bas
 		await tick()
 		scrollToBottom()
 
@@ -84,6 +144,9 @@
 			sock.on('dm:typing', onDmTyping)
 			sock.on('dm:read_ack', () => {})
 		}
+
+		// Init E2E après le mount
+		await initE2E()
 	})
 
 	onDestroy(() => {
@@ -94,11 +157,17 @@
 		}
 	})
 
-	function onDmMessage(msg: DmMessage) {
+	async function onDmMessage(msg: DmMessage) {
 		if (msg.conversation_id !== conversationId) return
+
+		// Déchiffrer si E2E actif
+		if (msg.is_encrypted && msg.encryption_nonce && peerPublicKey) {
+			const plain = await decryptDM(msg.content, msg.encryption_nonce, peerPublicKey, data.token)
+			msg = { ...msg, _decrypted: plain ?? undefined, _decryptFailed: plain === null }
+		}
+
 		messages = [...messages, msg]
 		tick().then(scrollToBottom)
-		// Marquer comme lu si la fenêtre est active
 		if (document.hasFocus()) markRead()
 	}
 
@@ -147,10 +216,15 @@
 				const { messages: older } = await res.json()
 				if (older.length === 0) { hasMore = false; return }
 				const prevScrollHeight = messagesEl?.scrollHeight ?? 0
-				messages = [...older, ...messages]
+				// Déchiffrer les anciens messages
+				const decrypted = await Promise.all((older as DmMessage[]).map(async (m) => {
+					if (!m.is_encrypted || !m.encryption_nonce || !peerPublicKey) return m
+					const plain = await decryptDM(m.content, m.encryption_nonce, peerPublicKey, data.token)
+					return { ...m, _decrypted: plain ?? undefined, _decryptFailed: plain === null }
+				}))
+				messages = [...decrypted, ...messages]
 				hasMore = older.length >= 50
 				await tick()
-				// Maintenir la position de scroll
 				if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight - prevScrollHeight
 			}
 		} finally {
@@ -175,20 +249,39 @@
 		if (!content || sendingMsg) return
 		sendingMsg = true
 		messageInput = ''
+
 		try {
 			const sock = getSocket()
-			if (sock) {
-				sock.emit('dm:send', { conversationId, content })
+
+			if (e2eStatus === 'active' && peerPublicKey) {
+				// ── E2E : animation barbare → chiffrement → envoi ──────────────
+				// 1. Afficher l'animation barbare pendant le chiffrement
+				if (esyKey) {
+					sendingVisual = barbarizeVisual(content, esyKey)
+					await tick()
+					await new Promise(r => setTimeout(r, 350))
+				}
+
+				const { ciphertext, nonce } = await encryptDM(content, peerPublicKey, data.token)
+				sendingVisual = null
+
+				if (sock) {
+					sock.emit('dm:send', {
+						conversationId,
+						content: ciphertext,
+						is_encrypted: true,
+						encryption_nonce: nonce,
+					})
+				}
 			} else {
-				// Fallback REST si socket pas dispo
-				await apiFetch(fetch, `/dm/conversations/${conversationId}/messages`, {
-					method: 'POST',
-					headers: { Authorization: `Bearer ${data.token}`, 'Content-Type': 'application/json' },
-					body: JSON.stringify({ content })
-				})
+				// ── Fallback texte clair ────────────────────────────────────────
+				if (sock) {
+					sock.emit('dm:send', { conversationId, content })
+				}
 			}
 		} finally {
 			sendingMsg = false
+			sendingVisual = null
 			await tick()
 			scrollToBottom()
 		}
@@ -223,7 +316,16 @@
 		return d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })
 	}
 
-	// Regrouper les messages avec séparateurs de date
+	// Message texte à afficher (déchiffré si E2E, brut sinon)
+	function displayContent(msg: DmMessage): string {
+		if (msg.is_encrypted) {
+			if (msg._decrypted !== undefined) return msg._decrypted
+			if (msg._decryptFailed) return '🔒 ' + tFn('dm.decrypt_failed')
+			return '🔒 …'
+		}
+		return msg.content
+	}
+
 	let groupedMessages = $derived.by(() => {
 		const groups: { date: string; msgs: DmMessage[] }[] = []
 		let currentDate = ''
@@ -238,7 +340,6 @@
 		return groups
 	})
 
-	// Regrouper les messages consécutifs du même sender (bulles condensées)
 	function isFirstInGroup(msgs: DmMessage[], i: number): boolean {
 		if (i === 0) return true
 		return msgs[i].sender_id !== msgs[i - 1].sender_id
@@ -247,6 +348,14 @@
 		if (i === msgs.length - 1) return true
 		return msgs[i].sender_id !== msgs[i + 1].sender_id
 	}
+
+	// Couleurs du shield E2E
+	const shieldColor = $derived(
+		e2eStatus === 'active'   ? { dot: '#4ade80', glow: 'rgba(74,222,128,0.25)', label: 'E2E' } :
+		e2eStatus === 'partial'  ? { dot: '#fb923c', glow: 'rgba(251,146,60,0.25)',  label: '~E2E' } :
+		e2eStatus === 'inactive' ? { dot: '#6b7280', glow: 'transparent',            label: '' } :
+		                           { dot: '#374151', glow: 'transparent',            label: '' }
+	)
 </script>
 
 <svelte:head>
@@ -348,6 +457,31 @@
 						<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
 					</svg>
 				</a>
+
+				<!-- Shield E2E -->
+				{#if e2eStatus !== 'inactive' && e2eStatus !== 'unknown'}
+					<div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border shrink-0 cursor-default"
+						style="background: {shieldColor.glow}; border-color: {shieldColor.dot}30"
+						title={esyFingerprint ? `ESY: ${esyFingerprint}` : tFn('dm.e2e_tooltip_' + e2eStatus)}>
+						<!-- Dot pulsant -->
+						<span class="relative flex w-2 h-2">
+							<span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60"
+								style="background: {shieldColor.dot}"></span>
+							<span class="relative inline-flex rounded-full w-2 h-2"
+								style="background: {shieldColor.dot}"></span>
+						</span>
+						<!-- Icône cadenas -->
+						<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+							style="color: {shieldColor.dot}">
+							<rect x="5" y="11" width="14" height="10" rx="2"/>
+							<path d="M8 11V7a4 4 0 018 0v4"/>
+						</svg>
+						{#if shieldColor.label}
+							<span class="text-[10px] font-bold tracking-wider"
+								style="color: {shieldColor.dot}">{shieldColor.label}</span>
+						{/if}
+					</div>
+				{/if}
 			{/if}
 		</header>
 
@@ -406,7 +540,17 @@
 											+ (first ? 'rounded-t-2xl rounded-bl-2xl rounded-br-md' : last ? 'rounded-b-2xl rounded-tl-2xl rounded-tr-md' : 'rounded-l-2xl rounded-r-md')
 										: 'bg-white/[0.07] border border-white/[0.06] text-gray-100 '
 											+ (first ? 'rounded-t-2xl rounded-br-2xl rounded-bl-md' : last ? 'rounded-b-2xl rounded-tr-2xl rounded-tl-md' : 'rounded-r-2xl rounded-l-md')}">
-									{msg.content}
+									{displayContent(msg)}
+
+									<!-- Lock badge si message chiffré -->
+									{#if msg.is_encrypted && !msg._decryptFailed}
+										<span class="inline-flex items-center ml-1.5 opacity-50" title={tFn('dm.encrypted_message')}>
+											<svg class="w-2.5 h-2.5 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+												<rect x="5" y="11" width="14" height="10" rx="2"/>
+												<path d="M8 11V7a4 4 0 018 0v4"/>
+											</svg>
+										</span>
+									{/if}
 
 									{#if isMine}
 										<button
@@ -435,6 +579,12 @@
 
 		<!-- Zone de saisie -->
 		<div class="shrink-0 px-5 py-4 border-t border-white/[0.06] bg-gray-950/30">
+			<!-- Animation barbare d'envoi -->
+			{#if sendingVisual}
+				<div class="mb-2 px-3 py-1.5 rounded-xl bg-indigo-900/20 border border-indigo-500/15 text-xs font-mono text-indigo-300/60 truncate tracking-widest animate-pulse">
+					{sendingVisual}
+				</div>
+			{/if}
 			<div class="flex items-end gap-3 bg-white/[0.04] border border-white/[0.07] rounded-2xl px-4 py-3
 						focus-within:border-indigo-500/35 focus-within:bg-indigo-500/[0.04] transition-all duration-200">
 				<textarea

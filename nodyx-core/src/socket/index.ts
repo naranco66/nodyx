@@ -603,7 +603,12 @@ export function registerSocketIO(server: Server): void {
     // ── DM events ─────────────────────────────────────────────────────────────
 
     // dm:send — envoyer un message dans une conversation
-    socket.on('dm:send', async (data: { conversationId: string; content: string }) => {
+    socket.on('dm:send', async (data: {
+      conversationId:   string
+      content:          string
+      is_encrypted?:    boolean
+      encryption_nonce?: string
+    }) => {
       if (checkRateLimit(userId, 'dm:send')) return
       try {
         if (!isUuid(data?.conversationId) || !isString(data?.content)) return
@@ -617,22 +622,32 @@ export function registerSocketIO(server: Server): void {
         )
         if (!part) return
 
-        const clean = sanitize(raw)
+        const isEncrypted = data.is_encrypted === true
+          && typeof data.encryption_nonce === 'string'
+          && /^[A-Za-z0-9+/=]{16,32}$/.test(data.encryption_nonce)  // nonce 12 bytes = 16 chars base64
 
-        const dmCheck = checkHtmlContent(clean)
-        if (!dmCheck.ok) {
-          socket.emit('chat:blocked', { reason: dmCheck.reason })
-          return
+        let clean: string
+        if (isEncrypted) {
+          // Message E2E : valider que le contenu est du base64 valide, ne pas sanitizer
+          if (!/^[A-Za-z0-9+/=\n]{1,20000}$/.test(raw)) return
+          clean = raw
+        } else {
+          clean = sanitize(raw)
+          const dmCheck = checkHtmlContent(clean)
+          if (!dmCheck.ok) {
+            socket.emit('chat:blocked', { reason: dmCheck.reason })
+            return
+          }
         }
 
         const { rows: [msg] } = await db.query<{
           id: string; conversation_id: string; sender_id: string;
-          content: string; created_at: Date;
+          content: string; created_at: Date; is_encrypted: boolean; encryption_nonce: string | null;
         }>(`
-          INSERT INTO dm_messages (conversation_id, sender_id, content)
-          VALUES ($1, $2, $3)
-          RETURNING id, conversation_id, sender_id, content, created_at
-        `, [data.conversationId, userId, clean])
+          INSERT INTO dm_messages (conversation_id, sender_id, content, is_encrypted, encryption_nonce)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id, conversation_id, sender_id, content, created_at, is_encrypted, encryption_nonce
+        `, [data.conversationId, userId, clean, isEncrypted, isEncrypted ? data.encryption_nonce : null])
 
         const payload = {
           ...msg,

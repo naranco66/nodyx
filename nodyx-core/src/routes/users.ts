@@ -613,8 +613,8 @@ export default async function userRoutes(app: FastifyInstance) {
     if (!public_key || typeof public_key !== 'string') {
       return reply.code(400).send({ error: 'public_key required', code: 'BAD_REQUEST' })
     }
-    // Validate: must be a valid base64 string (spki format, ~92 chars for P-256)
-    if (!/^[A-Za-z0-9+/=]{80,200}$/.test(public_key)) {
+    // Validate: base64-encoded JWK for ECDH P-256 — stringified JWK is ~200-300 chars in base64
+    if (!/^[A-Za-z0-9+/=]{80,500}$/.test(public_key)) {
       return reply.code(400).send({ error: 'Invalid public_key format', code: 'BAD_REQUEST' })
     }
 
