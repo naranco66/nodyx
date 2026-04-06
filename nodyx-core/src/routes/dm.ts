@@ -8,6 +8,7 @@ import { FastifyInstance } from 'fastify'
 import { rateLimit } from '../middleware/rateLimit'
 import { requireAuth } from '../middleware/auth'
 import { db } from '../config/database'
+import { io } from '../socket/io'
 import sanitizeHtml from 'sanitize-html'
 
 // ── Sanitize (texte brut uniquement pour les DMs) ─────────────────────────────
@@ -177,8 +178,8 @@ export default async function dmRoutes(app: FastifyInstance) {
     const me = request.user!.userId
     const { msgId } = request.params as { msgId: string }
 
-    const { rows: [msg] } = await db.query(
-      `SELECT sender_id FROM dm_messages WHERE id = $1 AND deleted_at IS NULL`, [msgId]
+    const { rows: [msg] } = await db.query<{ sender_id: string; conversation_id: string }>(
+      `SELECT sender_id, conversation_id FROM dm_messages WHERE id = $1 AND deleted_at IS NULL`, [msgId]
     )
     if (!msg) return reply.code(404).send({ error: 'Message not found' })
     if (msg.sender_id !== me) return reply.code(403).send({ error: 'Forbidden' })
@@ -186,6 +187,18 @@ export default async function dmRoutes(app: FastifyInstance) {
     await db.query(
       `UPDATE dm_messages SET deleted_at = now(), content = '' WHERE id = $1`, [msgId]
     )
+
+    // Notifier les participants en temps réel
+    const { rows: participants } = await db.query<{ user_id: string }>(
+      `SELECT user_id FROM dm_participants WHERE conversation_id = $1`, [msg.conversation_id]
+    )
+    for (const p of participants) {
+      io?.to(`user:${p.user_id}`).emit('dm:deleted', {
+        msgId,
+        conversation_id: msg.conversation_id,
+      })
+    }
+
     return reply.code(204).send()
   })
 
