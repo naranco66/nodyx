@@ -1470,7 +1470,7 @@ module.exports = {
       cwd: '${NODYX_DIR}/nodyx-frontend',
       watch: false,
       max_memory_restart: '256M',
-      env: { NODE_ENV: 'production', PORT: '4173', HOST: '127.0.0.1', ORIGIN: 'https://${DOMAIN}', PRIVATE_API_SSR_URL: 'http://127.0.0.1:3000/api/v1' },
+      env: { NODE_ENV: 'production', PORT: '4173', HOST: '127.0.0.1', ORIGIN: 'https://${DOMAIN}', PRIVATE_API_SSR_URL: 'http://127.0.0.1:3099' },
     },
   ],
 }

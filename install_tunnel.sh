@@ -541,7 +541,7 @@ module.exports = {
       script: 'build/index.js',
       cwd: '${NODYX_DIR}/nodyx-frontend',
       watch: false,
-      env: { NODE_ENV: 'production', PORT: '4173', HOST: '127.0.0.1', ORIGIN: 'https://${DOMAIN}' },
+      env: { NODE_ENV: 'production', PORT: '4173', HOST: '127.0.0.1', ORIGIN: 'https://${DOMAIN}', PRIVATE_API_SSR_URL: 'http://127.0.0.1:3099' },
     },
   ],
 }
