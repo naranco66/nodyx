@@ -640,9 +640,9 @@
     "private_message": "Private message",
     "back": "Back to messages",
     "view_profile": "View profile",
-    "select_conversation": "Select a conversation",
-    "select_conversation_hint": "Pick a message from the list or search a member to start one.",
-    "search_new_hint": "Search a member to write"
+    "select_conversation": "Your messages",
+    "select_conversation_hint": "Select a conversation on the left, or search for a member to start a new one.",
+    "search_new_hint": "Search for someone to message"
   },
   "feed": {
     "title": "Feed",
