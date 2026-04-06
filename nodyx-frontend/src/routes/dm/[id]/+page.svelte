@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { t } from '$lib/i18n'
 	import { onMount, onDestroy, tick } from 'svelte'
-	import { page } from '$app/stores'
 	import { getSocket, dmUnreadStore } from '$lib/socket'
 	import { apiFetch } from '$lib/api'
 
@@ -254,60 +253,100 @@
 	<title>DM — {conversation?.other_username ?? tFn('dm.title')}</title>
 </svelte:head>
 
-<!-- Layout deux colonnes : sidebar conversations + vue active -->
-<div class="flex h-full">
+<!-- Layout deux colonnes : sidebar + zone chat -->
+<div class="flex h-full bg-gray-950/20">
 
-	<!-- Sidebar conversations (masquée sur mobile) -->
-	<aside class="hidden sm:flex flex-col w-64 border-r border-gray-800 shrink-0 bg-gray-950/40">
-		<div class="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
-			<span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">{tFn('dm.sidebar_title')}</span>
-			<a href="/dm" class="text-gray-500 hover:text-white transition-colors" title={tFn('dm.new_conversation_tooltip')}>
-				<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-				</svg>
-			</a>
+	<!-- ── Sidebar conversations ──────────────────────────────────────────── -->
+	<aside class="hidden sm:flex flex-col w-72 shrink-0 border-r border-white/[0.06] bg-gray-950/60">
+
+		<!-- Header sidebar -->
+		<div class="px-4 pt-4 pb-3">
+			<div class="flex items-center justify-between mb-3">
+				<a href="/dm" class="flex items-center gap-2 group">
+					<svg class="w-4 h-4 text-gray-600 group-hover:text-gray-400 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+					</svg>
+					<span class="text-xs font-semibold text-gray-500 group-hover:text-gray-300 uppercase tracking-wider transition-colors">{tFn('dm.sidebar_title')}</span>
+				</a>
+				<a href="/dm" class="w-6 h-6 rounded-lg bg-indigo-600/15 hover:bg-indigo-600/30 border border-indigo-500/20 flex items-center justify-center transition-colors" title={tFn('dm.new_conversation_tooltip')}>
+					<svg class="w-3 h-3 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+					</svg>
+				</a>
+			</div>
 		</div>
-		<div class="flex-1 overflow-y-auto py-1">
+
+		<!-- Liste -->
+		<div class="flex-1 overflow-y-auto px-2 pb-3" style="scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.04) transparent">
 			{#each conversations as conv}
 				<a href="/dm/{conv.id}"
-					class="flex items-center gap-2.5 px-3 py-2 mx-1 rounded-lg transition-colors {conv.id === conversationId ? 'bg-indigo-600/20 text-white' : 'text-gray-400 hover:bg-gray-800/60 hover:text-white'}">
-					{#if conv.other_avatar}
-						<img src={conv.other_avatar} alt={conv.other_username} class="w-7 h-7 rounded-full object-cover shrink-0"/>
-					{:else}
-						<div class="w-7 h-7 rounded-full bg-indigo-600/25 flex items-center justify-center shrink-0 text-xs font-bold"
-							style={conv.other_name_color ? `color: ${conv.other_name_color}` : 'color: #818cf8'}>
-							{conv.other_username[0].toUpperCase()}
-						</div>
-					{/if}
-					<span class="text-sm truncate font-medium">{conv.other_username}</span>
+					class="flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl mb-0.5 transition-all
+						{conv.id === conversationId
+							? 'bg-indigo-600/15 border border-indigo-500/20'
+							: 'hover:bg-white/[0.04] border border-transparent'}">
+					<!-- Avatar -->
+					<div class="relative shrink-0">
+						{#if conv.other_avatar}
+							<img src={conv.other_avatar} alt={conv.other_username} class="w-8 h-8 rounded-full object-cover"/>
+						{:else}
+							<div class="w-8 h-8 rounded-full bg-indigo-600/20 border border-indigo-500/15 flex items-center justify-center text-xs font-bold"
+								style={conv.other_name_color ? `color: ${conv.other_name_color}` : 'color: #818cf8'}>
+								{conv.other_username[0].toUpperCase()}
+							</div>
+						{/if}
+					</div>
+					<span class="text-sm font-medium truncate
+						{conv.id === conversationId ? 'text-white' : 'text-gray-400'}"
+						style={conv.id === conversationId && conv.other_name_color ? `color: ${conv.other_name_color}` : ''}>
+						{conv.other_username}
+					</span>
 				</a>
 			{/each}
 		</div>
 	</aside>
 
-	<!-- Zone principale -->
+	<!-- ── Zone principale ───────────────────────────────────────────────── -->
 	<div class="flex-1 flex flex-col min-w-0">
 
-		<!-- Header -->
-		<header class="shrink-0 flex items-center gap-3 px-4 py-3 border-b border-gray-800 bg-gray-950/40">
-			<a href="/dm" class="sm:hidden p-1.5 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white transition-colors">
+		<!-- Header conversation -->
+		<header class="shrink-0 flex items-center gap-3 px-5 py-3.5 border-b border-white/[0.06] bg-gray-950/40 backdrop-blur-sm">
+			<!-- Retour mobile -->
+			<a href="/dm" aria-label={tFn('dm.back')} class="sm:hidden p-1.5 rounded-lg hover:bg-white/[0.06] text-gray-500 hover:text-white transition-colors">
 				<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
 				</svg>
 			</a>
-			{#if conversation?.other_avatar}
-				<img src={conversation.other_avatar} alt={conversation.other_username} class="w-8 h-8 rounded-full object-cover shrink-0"/>
-			{:else if conversation}
-				<div class="w-8 h-8 rounded-full bg-indigo-600/25 flex items-center justify-center shrink-0 text-sm font-bold"
-					style={conversation.other_name_color ? `color: ${conversation.other_name_color}` : 'color: #818cf8'}>
-					{conversation.other_username[0].toUpperCase()}
-				</div>
-			{/if}
+
 			{#if conversation}
-				<a href="/users/{conversation.other_username}"
-					class="text-sm font-semibold hover:underline"
-					style={conversation.other_name_color ? `color: ${conversation.other_name_color}` : 'color: white'}>
-					{conversation.other_username}
+				<!-- Avatar -->
+				{#if conversation.other_avatar}
+					<img src={conversation.other_avatar} alt={conversation.other_username} class="w-8 h-8 rounded-full object-cover shrink-0 ring-2 ring-white/[0.06]"/>
+				{:else}
+					<div class="w-8 h-8 rounded-full bg-indigo-600/20 border border-indigo-500/20 flex items-center justify-center shrink-0 text-sm font-bold"
+						style={conversation.other_name_color ? `color: ${conversation.other_name_color}` : 'color: #818cf8'}>
+						{conversation.other_username[0].toUpperCase()}
+					</div>
+				{/if}
+
+				<!-- Nom + lien profil -->
+				<div class="flex-1 min-w-0">
+					<a href="/users/{conversation.other_username}"
+						class="text-sm font-semibold hover:underline block truncate"
+						style={conversation.other_name_color ? `color: ${conversation.other_name_color}` : 'color: white'}>
+						{conversation.other_username}
+					</a>
+					{#if typingLabel}
+						<span class="text-[11px] text-indigo-400/80 italic">{typingLabel}</span>
+					{:else}
+						<span class="text-[11px] text-gray-600">{tFn('dm.private_message')}</span>
+					{/if}
+				</div>
+
+				<!-- Lien profil icône -->
+				<a href="/users/{conversation.other_username}" aria-label={tFn('dm.view_profile')} class="p-1.5 rounded-lg hover:bg-white/[0.06] text-gray-600 hover:text-gray-300 transition-colors shrink-0">
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+						<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+					</svg>
 				</a>
 			{/if}
 		</header>
@@ -316,21 +355,21 @@
 		<div
 			bind:this={messagesEl}
 			onscroll={onScroll}
-			class="flex-1 overflow-y-auto px-4 py-4 space-y-0.5"
+			class="flex-1 overflow-y-auto px-5 py-4"
+			style="scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.06) transparent"
 		>
-			<!-- Loader "plus de messages" -->
 			{#if loadingMore}
-				<div class="flex justify-center py-3">
-					<div class="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
+				<div class="flex justify-center py-4">
+					<div class="w-4 h-4 border-2 border-indigo-400/60 border-t-transparent rounded-full animate-spin"></div>
 				</div>
 			{/if}
 
 			{#each groupedMessages as group}
 				<!-- Séparateur de date -->
-				<div class="flex items-center gap-3 py-3">
-					<div class="flex-1 h-px bg-gray-800"></div>
-					<span class="text-[11px] text-gray-600 font-medium shrink-0">{group.date}</span>
-					<div class="flex-1 h-px bg-gray-800"></div>
+				<div class="flex items-center gap-3 py-4">
+					<div class="flex-1 h-px bg-white/[0.05]"></div>
+					<span class="text-[10px] text-gray-700 font-semibold uppercase tracking-wider shrink-0 px-2">{group.date}</span>
+					<div class="flex-1 h-px bg-white/[0.05]"></div>
 				</div>
 
 				{#each group.msgs as msg, i}
@@ -338,15 +377,15 @@
 					{@const first = isFirstInGroup(group.msgs, i)}
 					{@const last = isLastInGroup(group.msgs, i)}
 
-					<div class="flex {isMine ? 'justify-end' : 'justify-start'} {first ? 'mt-3' : 'mt-0.5'} group/msg">
-						<!-- Avatar (autres seulement, premier du groupe) -->
+					<div class="flex {isMine ? 'justify-end' : 'justify-start'} {first ? 'mt-3' : 'mt-[2px]'} group/msg">
+						<!-- Avatar peer (dernier du groupe seulement) -->
 						{#if !isMine}
-							<div class="w-8 shrink-0 mr-2 self-end">
+							<div class="w-9 shrink-0 mr-2 self-end mb-0.5">
 								{#if last}
 									{#if msg.sender_avatar}
 										<img src={msg.sender_avatar} alt={msg.sender_username} class="w-7 h-7 rounded-full object-cover"/>
 									{:else}
-										<div class="w-7 h-7 rounded-full bg-indigo-600/25 flex items-center justify-center text-xs font-bold"
+										<div class="w-7 h-7 rounded-full bg-indigo-600/20 border border-indigo-500/15 flex items-center justify-center text-xs font-bold"
 											style={msg.sender_name_color ? `color: ${msg.sender_name_color}` : 'color: #818cf8'}>
 											{msg.sender_username[0].toUpperCase()}
 										</div>
@@ -355,24 +394,24 @@
 							</div>
 						{/if}
 
-						<div class="max-w-[75%] flex flex-col {isMine ? 'items-end' : 'items-start'}">
-							<!-- Bulle -->
+						<div class="max-w-[68%] flex flex-col {isMine ? 'items-end' : 'items-start'}">
 							{#if msg.deleted_at}
-								<div class="px-3 py-2 rounded-2xl text-xs italic text-gray-600 bg-gray-800/40 border border-gray-800">
+								<div class="px-3 py-2 rounded-2xl text-xs italic text-gray-700 bg-white/[0.03] border border-white/[0.05]">
 									{tFn('dm.deleted_message')}
 								</div>
 							{:else}
-								<div class="relative px-3 py-2 rounded-2xl text-sm break-words
+								<div class="relative px-3.5 py-2 text-sm break-words leading-relaxed
 									{isMine
-										? 'bg-indigo-600 text-white ' + (first ? 'rounded-tr-sm' : '') + (last ? '' : 'rounded-br-sm')
-										: 'bg-gray-800 text-gray-100 ' + (first ? 'rounded-tl-sm' : '') + (last ? '' : 'rounded-bl-sm')}">
+										? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/10 '
+											+ (first ? 'rounded-t-2xl rounded-bl-2xl rounded-br-md' : last ? 'rounded-b-2xl rounded-tl-2xl rounded-tr-md' : 'rounded-l-2xl rounded-r-md')
+										: 'bg-white/[0.07] border border-white/[0.06] text-gray-100 '
+											+ (first ? 'rounded-t-2xl rounded-br-2xl rounded-bl-md' : last ? 'rounded-b-2xl rounded-tr-2xl rounded-tl-md' : 'rounded-r-2xl rounded-l-md')}">
 									{msg.content}
 
-									<!-- Actions (hover) -->
 									{#if isMine}
 										<button
 											onclick={() => deleteMessage(msg.id)}
-											class="absolute -left-7 top-1 opacity-0 group-hover/msg:opacity-100 transition-opacity p-1 rounded hover:bg-gray-800 text-gray-600 hover:text-red-400"
+											class="absolute -left-8 top-1.5 opacity-0 group-hover/msg:opacity-100 transition-opacity p-1 rounded-lg hover:bg-white/[0.06] text-gray-700 hover:text-red-400"
 											title={tFn('common.delete')}
 										>
 											<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -383,53 +422,45 @@
 								</div>
 							{/if}
 
-							<!-- Heure (dernier du groupe) -->
 							{#if last}
-								<span class="text-[10px] text-gray-600 mt-0.5 px-1">{formatTime(msg.created_at)}</span>
+								<span class="text-[10px] text-gray-700 mt-1 px-1">{formatTime(msg.created_at)}</span>
 							{/if}
 						</div>
 					</div>
 				{/each}
 			{/each}
 
-			<!-- Indicateur de frappe -->
-			{#if typingLabel}
-				<div class="flex items-center gap-2 px-2 py-1 mt-2">
-					<div class="flex gap-0.5">
-						<span class="w-1.5 h-1.5 rounded-full bg-gray-500 animate-bounce" style="animation-delay: 0ms"></span>
-						<span class="w-1.5 h-1.5 rounded-full bg-gray-500 animate-bounce" style="animation-delay: 150ms"></span>
-						<span class="w-1.5 h-1.5 rounded-full bg-gray-500 animate-bounce" style="animation-delay: 300ms"></span>
-					</div>
-					<span class="text-[11px] text-gray-500 italic">{typingLabel}</span>
-				</div>
-			{/if}
+			<!-- Indicateur de frappe (maintenant dans header) -->
 		</div>
 
 		<!-- Zone de saisie -->
-		<div class="shrink-0 px-4 py-3 border-t border-gray-800">
-			<div class="flex items-end gap-2 bg-gray-800/60 border border-gray-700 rounded-2xl px-4 py-2.5 focus-within:border-indigo-500/60 transition-colors">
+		<div class="shrink-0 px-5 py-4 border-t border-white/[0.06] bg-gray-950/30">
+			<div class="flex items-end gap-3 bg-white/[0.04] border border-white/[0.07] rounded-2xl px-4 py-3
+						focus-within:border-indigo-500/35 focus-within:bg-indigo-500/[0.04] transition-all duration-200">
 				<textarea
 					bind:value={messageInput}
 					onkeydown={onKeydown}
 					oninput={emitTyping}
-					placeholder={tFn('dm.message_placeholder')}
+					placeholder={conversation ? tFn('dm.message_placeholder_user', { user: conversation.other_username }) : tFn('dm.message_placeholder')}
 					rows="1"
-					class="flex-1 bg-transparent text-sm text-white placeholder-gray-600 outline-none resize-none max-h-32 leading-relaxed"
+					class="flex-1 bg-transparent text-sm text-white placeholder-gray-600 outline-none resize-none max-h-36 leading-relaxed"
 					style="field-sizing: content;"
 				></textarea>
 				<button
 					onclick={sendMessage}
 					disabled={!messageInput.trim() || sendingMsg}
-					class="shrink-0 p-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+					class="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center
+						bg-indigo-600 hover:bg-indigo-500 disabled:opacity-25 disabled:cursor-not-allowed
+						transition-all duration-150 shadow-lg shadow-indigo-500/20"
 					title={tFn('common.send')}
 				>
-					<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+					<svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
 						<line x1="22" y1="2" x2="11" y2="13"/>
 						<polygon points="22 2 15 22 11 13 2 9 22 2"/>
 					</svg>
 				</button>
 			</div>
-			<p class="text-[10px] text-gray-700 mt-1.5 text-right">{tFn('dm.send_instructions')}</p>
+			<p class="text-[10px] text-gray-800 mt-1.5 text-right">{tFn('dm.send_instructions')}</p>
 		</div>
 
 	</div>
