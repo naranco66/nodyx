@@ -189,6 +189,7 @@
 		opacity: 0; transition: opacity .3s;
 	}
 	.card-hover:hover::after { opacity: 1; }
+
 </style>
 
 <div class="dotbg min-h-full hp-root">

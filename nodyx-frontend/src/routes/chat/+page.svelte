@@ -21,6 +21,8 @@
 	import { buildNameStyle, buildAnimClass, ensureFontLoaded } from '$lib/nameEffects';
 	import FloatingReactions from '$lib/components/FloatingReactions.svelte';
 	import { t } from '$lib/i18n';
+	import { unreadCountsStore, flashChannelIdStore } from '$lib/unreadStore';
+	import { playMessage, playMention } from '$lib/sounds';
 	const tFn = $derived($t)
 
 	let { data }: { data: PageData } = $props();
@@ -38,7 +40,7 @@
 
 	// ── Types ─────────────────────────────────────────────────────────────────
 	type Channel = (typeof localChannels)[number];
-	type ReactionSummary = { emoji: string; count: number; userReactedIds: string[] };
+	type ReactionSummary = { emoji: string; count: number; userReactedIds: string[]; usernames: string[] };
 	type Message = {
 		id:                   string;
 		channel_id:           string;
@@ -103,6 +105,9 @@
 	let noMoreHistory       = $state(false);
 	let isAtBottom          = $state(true);
 	let unreadWhileScrolled = $state(0);
+
+	// ── Per-channel unread tracking (via shared store → layout sidebar) ─────
+	let _flashTimer: ReturnType<typeof setTimeout> | null = null;
 
 	// Typing indicators
 	type TypingEntry = { username: string; timer: ReturnType<typeof setTimeout> };
@@ -250,8 +255,12 @@
 		drawerOpen = false;
 		if (!s) return;
 		if (selectedChannel && selectedChannel.id !== channel.id) {
+			// Leave active mode but stay in room as watcher for unread notifications
 			s.emit('chat:leave', selectedChannel.id);
+			s.emit('chat:watch', selectedChannel.id);
 		}
+		// Clear unread for this channel
+		unreadCountsStore.update(c => ({ ...c, [channel.id]: 0 }));
 		selectedChannel = channel;
 		goto(`/chat?channel=${channel.id}`, { replaceState: true });
 		messages = [];
@@ -283,8 +292,19 @@
 		});
 
 		sock.on('chat:message', (msg: Message) => {
-			if (msg.channel_id !== selectedChannel?.id) return;
+			if (msg.channel_id !== selectedChannel?.id) {
+				// Message in a background channel — trigger glow + increment badge
+				if (msg.channel_id) {
+					unreadCountsStore.update(c => ({ ...c, [msg.channel_id]: (c[msg.channel_id] ?? 0) + 1 }));
+					flashChannelIdStore.set(msg.channel_id);
+					if (_flashTimer) clearTimeout(_flashTimer);
+					_flashTimer = setTimeout(() => { flashChannelIdStore.set(null); }, 650);
+				}
+				return;
+			}
 			messages = [...messages, normalizeMsg(msg)];
+			// Son uniquement si le message vient de quelqu'un d'autre
+			if (msg.author_id !== userId) playMessage();
 			if (isAtBottom) {
 				scrollToBottom();
 			} else {
@@ -367,6 +387,12 @@
 
 		// Join first channel
 		if (selectedChannel) sock.emit('chat:join', selectedChannel.id);
+
+		// Watch all other text channels for unread notifications (no history)
+		const watchIds = localChannels
+			.filter((c: any) => c.type !== 'voice' && c.id !== selectedChannel?.id)
+			.map((c: any) => c.id);
+		if (watchIds.length) sock.emit('chat:watch', watchIds);
 	}
 
 	function normalizeMsg(msg: Message): Message {
@@ -792,7 +818,7 @@
 					)};
 				}
 			} else {
-				return { ...m, reactions: [...reactions, { emoji, count: 1, userReactedIds: [reactorId] }] };
+				return { ...m, reactions: [...reactions, { emoji, count: 1, userReactedIds: [reactorId], usernames: [] }] };
 			}
 		});
 	}
@@ -819,7 +845,8 @@
 	}
 
 	// ── Réactions flottantes Twitch-style ──────────────────────────────────────
-	const FLOAT_EMOJIS = ['🔥', '❤️', '😂', '👀', '💯', '🎉', '😎', '🚀', '👏', '💀'];
+	const FLOAT_EMOJIS  = ['🔥', '❤️', '😂', '👀', '💯', '🎉', '😎', '🚀', '👏', '💀'];
+	const QUICK_EMOJIS  = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🎉', '👀'];
 	let floatCooldown = $state(false);
 
 	function floatReact(emoji: string) {
@@ -1164,17 +1191,19 @@
 								{/each}
 							{/if}
 
-							<!-- Reactions — only rendered when there are reactions (no height when empty) -->
+							<!-- Reactions -->
 							{#if !msg.is_deleted && msg.reactions.length > 0}
-								<div class="flex flex-wrap items-center gap-1.5 mt-1">
+								<div class="flex flex-wrap items-center gap-1 mt-1.5">
 									{#each msg.reactions as r (r.emoji)}
 										<button
 											onclick={() => reactTo(msg.id, r.emoji)}
-											class="flex items-center gap-1 px-2 h-6 transition-all text-[11px] font-bold {reactionFlash.get(msg.id)?.has(r.emoji) ? 'p2p-pop' : ''}"
-											style="{r.userReactedIds.includes(userId) ? 'background: rgba(124,58,237,.18); border: 1px solid rgba(124,58,237,.45); color: #c4b5fd; box-shadow: 0 0 8px rgba(124,58,237,.15)' : 'background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); color: #6b7280'}"
+											title={r.usernames?.join(', ') || r.userReactedIds.join(', ')}
+											class="chat-reaction-pill flex items-center gap-1 px-2 h-6 text-[11px] font-bold
+											       {reactionFlash.get(msg.id)?.has(r.emoji) ? 'p2p-pop' : ''}
+											       {r.userReactedIds.includes(userId) ? 'chat-reaction-mine' : 'chat-reaction-other'}"
 										>
 											<span>{r.emoji}</span>
-											<span>{r.count}</span>
+											<span class="tabular-nums">{r.count}</span>
 										</button>
 									{/each}
 								</div>
@@ -1188,9 +1217,19 @@
 								class="{actionsVisible ? 'flex' : 'hidden group-hover:flex'} items-center gap-0.5 absolute right-4 -top-4 px-1 py-1 shadow-2xl z-20"
 								style="background: #0d0d12; border: 1px solid rgba(255,255,255,.08)"
 							>
-								<!-- Réagir -->
+								<!-- Quick reactions (8 emojis directs) -->
+								{#each QUICK_EMOJIS as qe}
+									<button
+										onclick={() => reactTo(msg.id, qe)}
+										title={qe}
+										class="w-7 h-7 flex items-center justify-center text-base rounded transition-all hover:scale-125 hover:bg-white/[0.07]">
+										{qe}
+									</button>
+								{/each}
+								<span class="w-px h-4 mx-0.5" style="background: rgba(255,255,255,.07)"></span>
+								<!-- Réagir (full picker) -->
 								<div data-picker class="relative">
-									<button onclick={() => toggleEmojiPicker(msg.id)} title="Réagir"
+									<button onclick={() => toggleEmojiPicker(msg.id)} title="Plus…"
 									        class="w-7 h-7 flex items-center justify-center transition-colors" style="color: #4b5563"
 									        onmouseenter={(e) => (e.currentTarget as HTMLElement).style.color = '#a78bfa'}
 									        onmouseleave={(e) => (e.currentTarget as HTMLElement).style.color = '#4b5563'}>
@@ -1597,6 +1636,39 @@
 	@keyframes typing-bounce {
 		0%, 55%, 100% { transform: translateY(0);   opacity: 0.4; }
 		27%            { transform: translateY(-5px); opacity: 1;   }
+	}
+
+	/* ── Chat reaction pills ─────────────────────────────────────────────── */
+	.chat-reaction-pill {
+		border-radius: 99px;
+		transition: transform .12s, background .12s, border-color .12s;
+		animation: chat-pill-in .2s cubic-bezier(.34,1.56,.64,1) both;
+	}
+	.chat-reaction-pill:hover { transform: scale(1.1); }
+
+	.chat-reaction-other {
+		background: rgba(255,255,255,.04);
+		border: 1px solid rgba(255,255,255,.08);
+		color: #6b7280;
+	}
+	.chat-reaction-other:hover {
+		background: rgba(255,255,255,.08);
+		border-color: rgba(255,255,255,.15);
+		color: #e2e8f0;
+	}
+	.chat-reaction-mine {
+		background: rgba(124,58,237,.18);
+		border: 1px solid rgba(124,58,237,.45);
+		color: #c4b5fd;
+		box-shadow: 0 0 8px rgba(124,58,237,.15);
+	}
+	.chat-reaction-mine:hover {
+		background: rgba(124,58,237,.08);
+		border-color: rgba(124,58,237,.2);
+	}
+	@keyframes chat-pill-in {
+		from { transform: scale(0); opacity: 0; }
+		to   { transform: scale(1); opacity: 1; }
 	}
 
 	/* Reaction pop — spring physics burst when a P2P reaction arrives */

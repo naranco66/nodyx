@@ -95,11 +95,14 @@ export async function initKeyPair(): Promise<string> {
 
   if (_keys) return _jwkToB64(_keys.publicKeyJwk)
 
-  const stored = await _loadStoredKeys()
-  if (stored) {
-    _keys = stored
-    return _jwkToB64(stored.publicKeyJwk)
-  }
+  // Essayer IndexedDB d'abord
+  try {
+    const stored = await _loadStoredKeys()
+    if (stored) {
+      _keys = stored
+      return _jwkToB64(stored.publicKeyJwk)
+    }
+  } catch { /* IndexedDB indisponible (navigation privée, etc.) — génère en mémoire */ }
 
   // Générer une paire ECDH P-256 fraîche
   // private key non-extractable : le navigateur garantit qu'elle ne sort pas
@@ -112,9 +115,10 @@ export async function initKeyPair(): Promise<string> {
   const publicKeyJwk = await crypto.subtle.exportKey('jwk', pair.publicKey)
   const keys: StoredKeys = { id: KEY_ID, privateKey: pair.privateKey, publicKeyJwk }
 
-  await _saveKeys(keys)
-  _keys = keys
+  // Tenter la persistance — silencieux si IDB indisponible
+  try { await _saveKeys(keys) } catch { /* session-only en navigation privée */ }
 
+  _keys = keys
   return _jwkToB64(publicKeyJwk)
 }
 

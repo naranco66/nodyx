@@ -6,6 +6,20 @@
     import { tick } from 'svelte';
     import { t, locale, LOCALES, type Locale } from '$lib/i18n';
     import { get } from 'svelte/store';
+    import { soundSettings } from '$lib/soundSettings';
+
+    // ── Sons ──────────────────────────────────────────────────────────────────
+    const sounds       = $derived($soundSettings)
+    let soundTestPlaying = $state(false)
+
+    async function testSound(type: 'message' | 'mention' | 'dm') {
+        soundTestPlaying = true
+        const { playMessage, playMention, playDm } = await import('$lib/sounds')
+        if (type === 'message') playMessage()
+        else if (type === 'mention') playMention()
+        else playDm()
+        setTimeout(() => soundTestPlaying = false, 500)
+    }
 
     // ── i18n — Svelte 5 runes-compatible reactive wrappers ────────────────────
     // $t and $locale are legacy store subscriptions; wrapping in $derived ensures
@@ -412,6 +426,19 @@
             </button>
 
             <div class="sb-section-label" style="margin-top: 16px">{tFn('settings.nav.preferences')}</div>
+
+            <button class="sb-item {activeSection === 'sounds' ? 'active' : ''}"
+                    onclick={() => activeSection = 'sounds'}>
+                <span class="sb-icon" style="background: rgba(251,146,60,0.12); color: #fb923c">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                    </svg>
+                </span>
+                <span class="sb-label">Sons</span>
+                {#if !sounds.enabled}
+                    <span class="sb-badge-dot" style="background:#6b7280"></span>
+                {/if}
+            </button>
 
             <button class="sb-item {activeSection === 'language' ? 'active' : ''}"
                     onclick={() => activeSection = 'language'}>
@@ -843,6 +870,143 @@
                     <p class="s-hint-text" style="margin-top:10px;opacity:0.5">{tFn('settings.signet.expiry')}</p>
                 </div>
                 {/if}
+            </div>
+        </div>
+        {/if}
+
+        <!-- ═══ SONS ══════════════════════════════════════════════════════════ -->
+        {#if activeSection === 'sounds'}
+        <div class="s-pane" style="--accent: #fb923c; --accent-bg: rgba(251,146,60,0.08); --accent-border: rgba(251,146,60,0.2)">
+            <div class="s-pane-header">
+                <div class="s-pane-icon" style="background: var(--accent-bg); border-color: var(--accent-border); color: var(--accent)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                    </svg>
+                </div>
+                <div>
+                    <h2 class="s-pane-title">Notifications sonores</h2>
+                    <p class="s-pane-desc">Sons synthétisés en temps réel — aucun fichier audio.</p>
+                </div>
+            </div>
+
+            <!-- Master toggle -->
+            <div class="s-card">
+                <div class="s-row">
+                    <div class="s-row-info">
+                        <div class="s-row-title">Sons activés</div>
+                        <div class="s-row-sub">Active ou désactive tous les sons de notification.</div>
+                    </div>
+                    <button
+                        onclick={() => soundSettings.update(s => ({ ...s, enabled: !s.enabled }))}
+                        class="s-toggle {sounds.enabled ? 'on' : 'off'}"
+                        aria-label="Activer les sons"
+                    >
+                        <span class="s-toggle-thumb"></span>
+                    </button>
+                </div>
+
+                <!-- Volume slider -->
+                {#if sounds.enabled}
+                <div class="s-row" style="margin-top: 8px; align-items: center; gap: 12px">
+                    <div class="s-row-info">
+                        <div class="s-row-title">Volume</div>
+                    </div>
+                    <div class="sound-volume-wrap">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:#6b7280;flex-shrink:0">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                        </svg>
+                        <input
+                            type="range" min="0" max="1" step="0.05"
+                            value={sounds.volume}
+                            oninput={(e) => soundSettings.update(s => ({ ...s, volume: parseFloat((e.target as HTMLInputElement).value) }))}
+                            class="sound-slider"
+                        />
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:#fb923c;flex-shrink:0">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                        </svg>
+                        <span class="sound-vol-label">{Math.round(sounds.volume * 100)}%</span>
+                    </div>
+                </div>
+                {/if}
+            </div>
+
+            <!-- Per-type toggles -->
+            {#if sounds.enabled}
+            <div class="s-card">
+                <!-- Message -->
+                <div class="s-row">
+                    <div class="s-row-info">
+                        <div class="s-row-title">Nouveau message</div>
+                        <div class="s-row-sub">Son discret lors d'un message dans le channel actif.</div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <button onclick={() => testSound('message')} class="sound-test-btn" title="Tester">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="5 3 19 12 5 21 5 3"/>
+                            </svg>
+                        </button>
+                        <button
+                            onclick={() => soundSettings.update(s => ({ ...s, message: !s.message }))}
+                            class="s-toggle {sounds.message ? 'on' : 'off'}"
+                            aria-label="Son message"
+                        >
+                            <span class="s-toggle-thumb"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="s-divider"></div>
+
+                <!-- Mention -->
+                <div class="s-row">
+                    <div class="s-row-info">
+                        <div class="s-row-title">@Mention</div>
+                        <div class="s-row-sub">Double ton montant quand quelqu'un vous mentionne.</div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <button onclick={() => testSound('mention')} class="sound-test-btn" title="Tester">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="5 3 19 12 5 21 5 3"/>
+                            </svg>
+                        </button>
+                        <button
+                            onclick={() => soundSettings.update(s => ({ ...s, mention: !s.mention }))}
+                            class="s-toggle {sounds.mention ? 'on' : 'off'}"
+                            aria-label="Son mention"
+                        >
+                            <span class="s-toggle-thumb"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="s-divider"></div>
+
+                <!-- DM -->
+                <div class="s-row">
+                    <div class="s-row-info">
+                        <div class="s-row-title">Message direct (DM)</div>
+                        <div class="s-row-sub">Sweep chaud + harmonique pour les nouveaux DM.</div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <button onclick={() => testSound('dm')} class="sound-test-btn" title="Tester">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="5 3 19 12 5 21 5 3"/>
+                            </svg>
+                        </button>
+                        <button
+                            onclick={() => soundSettings.update(s => ({ ...s, dm: !s.dm }))}
+                            class="s-toggle {sounds.dm ? 'on' : 'off'}"
+                            aria-label="Son DM"
+                        >
+                            <span class="s-toggle-thumb"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {/if}
+
+            <div class="s-card s-card-muted">
+                <p class="s-hint-text">Sons générés via Web Audio API — aucun fichier téléchargé, aucune latence réseau. Les réglages sont sauvegardés localement dans votre navigateur.</p>
             </div>
         </div>
         {/if}
@@ -1477,6 +1641,52 @@
 .lang-flag { font-size: 28px; }
 .lang-flag-label { font-size: 13px; font-weight: 600; color: #6b7280; }
 .lang-flag-active { font-size: 10px; font-weight: 700; color: #34d399; text-transform: uppercase; letter-spacing: 0.08em; }
+
+/* ── Sons ────────────────────────────────────────────────────────────────── */
+.sound-volume-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    max-width: 240px;
+}
+.sound-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to right, #fb923c calc(var(--val, 50) * 1%), rgba(255,255,255,0.1) calc(var(--val, 50) * 1%));
+    outline: none;
+    cursor: pointer;
+}
+.sound-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fb923c;
+    cursor: pointer;
+    box-shadow: 0 0 6px rgba(251,146,60,0.5);
+    transition: box-shadow 0.15s;
+}
+.sound-slider:hover::-webkit-slider-thumb { box-shadow: 0 0 10px rgba(251,146,60,0.7); }
+.sound-vol-label { font-size: 12px; font-weight: 600; color: #fb923c; min-width: 32px; text-align: right; }
+.sound-test-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: 1px solid rgba(251,146,60,0.2);
+    background: rgba(251,146,60,0.08);
+    color: #fb923c;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.sound-test-btn:hover { background: rgba(251,146,60,0.16); border-color: rgba(251,146,60,0.35); }
+.s-divider { border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 10px 0; }
 
 /* ── Spinner ─────────────────────────────────────────────────────────────── */
 .s-spin {

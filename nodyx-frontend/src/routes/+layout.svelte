@@ -17,6 +17,8 @@
 	import { get } from 'svelte/store';
 	import { voiceStore, voiceChannelMembersStore, voiceEventsStore, screenShareStore, remoteScreenStore } from '$lib/voice';
 	import { locale, t } from '$lib/i18n';
+	import { unreadCountsStore, flashChannelIdStore } from '$lib/unreadStore';
+	import { playMention, playDm } from '$lib/sounds';
 	const tFn = $derived($t)
 
 	let { children, data }: { children: any; data: LayoutData } = $props();
@@ -58,6 +60,24 @@
 		if ($page.url.pathname.startsWith('/chat') && $chatMentionStore > 0) {
 			chatMentionStore.set(0)
 		}
+	})
+
+	// Sound — @mention (play once per new mention, not on /chat which handles its own)
+	let _lastMentionCount = 0
+	$effect(() => {
+		const c = $chatMentionStore
+		if (c > _lastMentionCount && !$page.url.pathname.startsWith('/chat')) {
+			playMention()
+		}
+		_lastMentionCount = c
+	})
+
+	// Sound — nouveau DM
+	let _lastDmCount = 0
+	$effect(() => {
+		const c = $dmUnreadStore
+		if (c > _lastDmCount) playDm()
+		_lastDmCount = c
 	})
 	const communityName      = $derived(data.communityName ?? 'Nodyx');
 	const communityLogo      = $derived((data as any).communityLogoUrl  as string | null);
@@ -804,14 +824,22 @@
 						{#if mods.chat !== false}
 					{#each layoutTextChannels as ch}
 						{@const chActive = activeChatChannelId === ch.id}
+						{@const chUnread = ($unreadCountsStore[ch.id] ?? 0)}
+						{@const chFlash  = $flashChannelIdStore === ch.id}
+						{@const hasUnread = chUnread > 0 && !chActive}
 						<a href="/chat?channel={ch.id}"
-						   class="relative flex items-center gap-2.5 px-2.5 py-2 text-sm transition-all"
-						   style="color: {chActive ? '#e2e8f0' : '#4b5563'}; background: {chActive ? 'rgba(124,58,237,.12)' : 'transparent'}">
+						   class="lch-item relative flex items-center gap-2.5 px-2.5 py-2 text-sm
+						          {chActive ? 'lch-active' : hasUnread ? 'lch-unread' : 'lch-idle'}
+						          {chFlash ? 'lch-flash' : ''}">
 							{#if chActive}
 								<span class="absolute left-0 top-1 bottom-1 w-0.5" style="background: linear-gradient(to bottom, #7c3aed, #06b6d4)"></span>
 							{/if}
-							<span class="text-base font-bold leading-none shrink-0" style="color: {chActive ? '#a78bfa' : '#374151'}">#</span>
-							<span class="text-xs truncate">{ch.name}</span>
+							<span class="text-base font-bold leading-none shrink-0"
+							      style="color: {chActive ? '#a78bfa' : hasUnread ? '#7c3aed' : '#374151'}">#</span>
+							<span class="text-xs truncate flex-1" class:font-semibold={hasUnread}>{ch.name}</span>
+							{#if hasUnread}
+								<span class="lch-badge">{chUnread > 99 ? '99+' : chUnread}</span>
+							{/if}
 						</a>
 						{/each}
 					{/if}
@@ -1482,5 +1510,79 @@
 @keyframes vc-wave {
 	0%, 100% { transform: scaleY(0.25); opacity: 0.55 }
 	50%       { transform: scaleY(1);    opacity: 1    }
+}
+
+/* ── Layout channel items — unread glow ──────────────────────────────────── */
+.lch-item {
+	position: relative;
+	overflow: hidden;
+	transition: color .15s, background .15s;
+	border-radius: 4px;
+}
+.lch-idle  { color: #4b5563; }
+.lch-idle:hover { color: #e2e8f0; background: rgba(255,255,255,.03); }
+
+.lch-active {
+	color: #e2e8f0;
+	background: rgba(124,58,237,.12);
+}
+
+.lch-unread {
+	color: #e2e8f0;
+	background: rgba(99,102,241,.07);
+	box-shadow: inset 2px 0 0 rgba(124,58,237,.65);
+	animation: lch-breathe 2.8s ease-in-out infinite;
+}
+.lch-unread:hover { background: rgba(99,102,241,.13); }
+
+@keyframes lch-breathe {
+	0%,100% {
+		box-shadow: inset 2px 0 0 rgba(124,58,237,.5);
+		background: rgba(99,102,241,.06);
+	}
+	50% {
+		box-shadow: inset 2px 0 0 rgba(167,139,250,.95), 0 0 12px rgba(99,102,241,.12);
+		background: rgba(99,102,241,.11);
+	}
+}
+
+.lch-flash::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(
+		90deg,
+		transparent 0%,
+		rgba(99,102,241,.2) 35%,
+		rgba(167,139,250,.28) 50%,
+		rgba(99,102,241,.2) 65%,
+		transparent 100%
+	);
+	transform: translateX(-110%);
+	animation: lch-sweep .55s cubic-bezier(.4,0,.2,1) forwards;
+	pointer-events: none;
+}
+@keyframes lch-sweep {
+	from { transform: translateX(-110%); }
+	to   { transform: translateX(110%); }
+}
+
+.lch-badge {
+	flex-shrink: 0;
+	min-width: 15px;
+	height: 15px;
+	padding: 0 4px;
+	border-radius: 99px;
+	background: #7c3aed;
+	color: white;
+	font-size: 8px;
+	font-weight: 800;
+	text-align: center;
+	line-height: 15px;
+	animation: lch-badge-pop .2s cubic-bezier(.34,1.56,.64,1) both;
+}
+@keyframes lch-badge-pop {
+	from { transform: scale(0); opacity: 0; }
+	to   { transform: scale(1); opacity: 1; }
 }
 </style>

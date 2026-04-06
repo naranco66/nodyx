@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { fade } from 'svelte/transition';
 	import VoicePanel from '$lib/components/VoicePanel.svelte';
+	import { unreadCountsStore, flashChannelIdStore } from '$lib/unreadStore';
 
 	type Channel = { id: string; name: string; slug?: string; type?: string; description?: string };
 
@@ -119,18 +120,26 @@
 			<p class="px-2 pt-2 pb-1 text-[10px] uppercase tracking-widest text-gray-600 font-semibold">Texte</p>
 			<div class="space-y-0.5 mb-3">
 				{#each textChannels as ch (ch.id)}
+					{@const unread = ($unreadCountsStore[ch.id] ?? 0)}
+					{@const isFlashing = $flashChannelIdStore === ch.id}
+					{@const isActive = selectedChannelId === ch.id}
+					{@const hasUnread = unread > 0 && !isActive}
 					<button
 						onclick={() => onjoinChannel(ch)}
 						draggable={isAdmin}
 						ondragstart={isAdmin ? (e) => onDragStart(e, ch) : undefined}
 						ondragover={isAdmin ? onDragOver : undefined}
 						ondrop={isAdmin ? (e) => onDrop(e, ch) : undefined}
-						class="w-full text-left flex items-center gap-1.5 px-2.5 py-1.5 rounded text-sm transition-colors
+						class="ch-item w-full text-left flex items-center gap-1.5 px-2.5 py-1.5 rounded text-sm
 						       {isAdmin ? 'cursor-grab active:cursor-grabbing' : ''}
-						       {selectedChannelId === ch.id ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800/60'}"
+						       {isActive ? 'ch-active' : hasUnread ? 'ch-unread' : 'ch-idle'}
+						       {isFlashing ? 'ch-flash' : ''}"
 					>
-						<span class="text-gray-500">#</span>
-						<span class="truncate">{ch.slug ?? ch.name}</span>
+						<span class="ch-hash" class:ch-hash-unread={hasUnread}>#</span>
+						<span class="truncate flex-1" class:font-semibold={hasUnread}>{ch.slug ?? ch.name}</span>
+						{#if hasUnread}
+							<span class="ch-badge">{unread > 99 ? '99+' : unread}</span>
+						{/if}
 					</button>
 				{/each}
 			</div>
@@ -242,5 +251,88 @@
 	}
 	.custom-scrollbar:hover::-webkit-scrollbar-thumb {
 		background-color: rgba(99, 102, 241, 0.4) !important;
+	}
+
+	/* ── Channel item base ─────────────────────────────────────────────────── */
+	.ch-item {
+		position: relative;
+		overflow: hidden;
+		transition: color .15s, background .15s;
+	}
+
+	.ch-idle  { color: #6b7280; }
+	.ch-idle:hover { color: #e2e8f0; background: rgba(255,255,255,.04); }
+
+	.ch-active {
+		color: #e2e8f0;
+		background: rgba(124,58,237,.14);
+		box-shadow: inset 2px 0 0 #7c3aed;
+	}
+
+	/* ── Unread state: bioluminescent breathing glow ───────────────────────── */
+	.ch-unread {
+		color: #e2e8f0;
+		background: rgba(99,102,241,.07);
+		box-shadow: inset 2px 0 0 rgba(124,58,237,.7);
+		animation: ch-breathe 2.8s ease-in-out infinite;
+	}
+	.ch-unread:hover { background: rgba(99,102,241,.14); }
+
+	@keyframes ch-breathe {
+		0%,100% {
+			box-shadow: inset 2px 0 0 rgba(124,58,237,.55), 0 0 0 rgba(99,102,241,0);
+			background: rgba(99,102,241,.06);
+		}
+		50% {
+			box-shadow: inset 2px 0 0 rgba(167,139,250,.95), 0 0 14px rgba(99,102,241,.14);
+			background: rgba(99,102,241,.11);
+		}
+	}
+
+	/* ── Flash: sonar wave sweeps left → right ─────────────────────────────── */
+	.ch-flash::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(
+			90deg,
+			transparent 0%,
+			rgba(99,102,241,.22) 35%,
+			rgba(167,139,250,.30) 50%,
+			rgba(99,102,241,.22) 65%,
+			transparent 100%
+		);
+		transform: translateX(-110%);
+		animation: ch-sweep .55s cubic-bezier(.4,0,.2,1) forwards;
+		pointer-events: none;
+	}
+	@keyframes ch-sweep {
+		from { transform: translateX(-110%); }
+		to   { transform: translateX(110%); }
+	}
+
+	/* ── Hash symbol ───────────────────────────────────────────────────────── */
+	.ch-hash { color: #374151; transition: color .15s; }
+	.ch-hash-unread { color: #7c3aed; }
+	.ch-idle:hover .ch-hash { color: #4b5563; }
+
+	/* ── Unread badge ──────────────────────────────────────────────────────── */
+	.ch-badge {
+		flex-shrink: 0;
+		min-width: 16px;
+		height: 16px;
+		padding: 0 4px;
+		border-radius: 99px;
+		background: #7c3aed;
+		color: white;
+		font-size: 9px;
+		font-weight: 800;
+		text-align: center;
+		line-height: 16px;
+		animation: ch-badge-pop .2s cubic-bezier(.34,1.56,.64,1) both;
+	}
+	@keyframes ch-badge-pop {
+		from { transform: scale(0); opacity: 0; }
+		to   { transform: scale(1); opacity: 1; }
 	}
 </style>

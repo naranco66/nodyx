@@ -143,7 +143,26 @@ export default async function dmRoutes(app: FastifyInstance) {
         u.avatar          AS sender_avatar,
         up.name_color     AS sender_name_color,
         up.name_animation AS sender_name_animation,
-        up.name_font_family AS sender_name_font_family
+        up.name_font_family AS sender_name_font_family,
+        COALESCE((
+          SELECT json_agg(json_build_object(
+            'emoji',     r.emoji,
+            'count',     r.cnt,
+            'userIds',   r.user_ids,
+            'usernames', r.usernames
+          ) ORDER BY r.first_at)
+          FROM (
+            SELECT dr.emoji,
+                   COUNT(*)::int                                       AS cnt,
+                   array_agg(dr.user_id::text ORDER BY dr.created_at) AS user_ids,
+                   array_agg(u.username       ORDER BY dr.created_at) AS usernames,
+                   MIN(dr.created_at)                                  AS first_at
+            FROM dm_reactions dr
+            JOIN users u ON u.id = dr.user_id
+            WHERE dr.message_id = m.id
+            GROUP BY dr.emoji
+          ) r
+        ), '[]') AS reactions
       FROM   dm_messages m
       JOIN   users u ON u.id = m.sender_id
       LEFT JOIN user_profiles up ON up.user_id = u.id

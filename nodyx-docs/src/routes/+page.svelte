@@ -729,6 +729,137 @@
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- E2E ENCRYPTION                                                            -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<section class="section e2e-section">
+  <div class="e2e-grid-bg" aria-hidden="true"></div>
+  <div class="e2e-orb e2e-orb-left" aria-hidden="true"></div>
+  <div class="e2e-orb e2e-orb-right" aria-hidden="true"></div>
+
+  <div class="section-inner e2e-layout">
+
+    <!-- LEFT: headline + layers -->
+    <div class="e2e-text">
+      <div class="section-label" style="color: #4ade80; border-color: #4ade8030; background: #4ade8010;">PRIVATE MESSAGING</div>
+      <h2 class="section-title" style="margin-bottom: 1rem;">
+        Your messages.<br/>
+        <span class="e2e-gradient">Only yours.</span>
+      </h2>
+      <p class="e2e-intro">
+        Every DM is encrypted <strong>in your browser</strong> before it leaves your device —
+        three independent layers. The server stores only opaque ciphertext it can never read.
+      </p>
+
+      <!-- 3 layers -->
+      <div class="e2e-layers">
+        <div class="e2e-layer">
+          <div class="e2e-layer-num">1</div>
+          <div class="e2e-layer-body">
+            <div class="e2e-layer-title">
+              ECDH P-256
+              <span class="e2e-layer-tag">Key exchange</span>
+            </div>
+            <p class="e2e-layer-desc">
+              Your private key is generated in the browser and <strong>never leaves it</strong> — stored as a non-extractable CryptoKey. The server only holds your public key.
+            </p>
+          </div>
+        </div>
+        <div class="e2e-layer">
+          <div class="e2e-layer-num">2</div>
+          <div class="e2e-layer-body">
+            <div class="e2e-layer-title">
+              AES-256-GCM
+              <span class="e2e-layer-tag">Encryption</span>
+            </div>
+            <p class="e2e-layer-desc">
+              Military-grade authenticated encryption. Each message gets a unique 12-byte random IV. The database stores only <strong>opaque ciphertext</strong>.
+            </p>
+          </div>
+        </div>
+        <div class="e2e-layer e2e-layer-esy">
+          <div class="e2e-layer-num e2e-layer-num-green">3</div>
+          <div class="e2e-layer-body">
+            <div class="e2e-layer-title e2e-layer-title-green">
+              ESY Barbare
+              <span class="e2e-layer-tag e2e-layer-tag-green">Unique to each instance</span>
+            </div>
+            <p class="e2e-layer-desc">
+              A per-instance obfuscation layer on top of AES-GCM — byte-permutation + deterministic PRNG noise. Even if AES were broken, an attacker still needs <strong>this instance's secret</strong>.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: live simulation mockup -->
+    <div class="e2e-demo" aria-label="Encryption simulation">
+
+      <!-- Shield header -->
+      <div class="e2e-demo-header">
+        <div class="e2e-shield-wrap">
+          <div class="e2e-ring e2e-ring-1"></div>
+          <div class="e2e-ring e2e-ring-2"></div>
+          <span class="e2e-dot-live">
+            <span class="e2e-dot-ping"></span>
+            <span class="e2e-dot-core"></span>
+          </span>
+        </div>
+        <div>
+          <div class="e2e-status-label">End-to-End Encrypted</div>
+          <div class="e2e-fingerprint">ESY · 189a9474·fcc66f78</div>
+        </div>
+        <div class="e2e-shield-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+      </div>
+
+      <!-- Conversation mock -->
+      <div class="e2e-convo">
+        <!-- Outgoing plain text -->
+        <div class="e2e-msg-row e2e-msg-row-out">
+          <div class="e2e-bubble e2e-bubble-out">
+            Hey, rendez-vous demain à 18h ?
+          </div>
+        </div>
+
+        <!-- Encryption indicator -->
+        <div class="e2e-encrypt-step">
+          <div class="e2e-step-line"></div>
+          <div class="e2e-step-pill">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+            ECDH · AES-GCM · ESY
+          </div>
+          <div class="e2e-step-line"></div>
+        </div>
+
+        <!-- Ciphertext on the wire -->
+        <div class="e2e-msg-row e2e-msg-row-out">
+          <div class="e2e-bubble e2e-bubble-cipher">
+            <span class="e2e-cipher-shimmer">v2SB3l9OKY2adNW·aT1NZpECecR7+l3·kJ0LTuJ0kzFP7wri·C8G9WyDQCtCxI6z</span>
+          </div>
+        </div>
+
+        <!-- Receiver side -->
+        <div class="e2e-receiver-label">
+          <span>Receiver</span>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+
+        <div class="e2e-msg-row e2e-msg-row-in">
+          <div class="e2e-bubble e2e-bubble-in">
+            Hey, rendez-vous demain à 18h ?
+            <span class="e2e-lock-icon" aria-label="E2E verified">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+            </span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
 <!-- ARCHITECTURE PILL STRIP                                                  -->
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <section class="section">
@@ -2204,4 +2335,272 @@
 .feed-mock-action--active { color: #f43f5e; }
 
 .feed-showcase-text .rep-intro { margin-bottom: 1.5rem; }
+
+/* ── E2E Section ──────────────────────────────────────────────────────────── */
+.e2e-section {
+  position: relative;
+  overflow: hidden;
+}
+
+.e2e-grid-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(74,222,128,.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(74,222,128,.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 20%, transparent 100%);
+}
+
+.e2e-orb {
+  position: absolute;
+  width: 500px; height: 500px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.e2e-orb-left  { top: -180px; left: -80px;  background: radial-gradient(circle, rgba(74,222,128,.06) 0%, transparent 65%); }
+.e2e-orb-right { bottom: -180px; right: -80px; background: radial-gradient(circle, rgba(99,102,241,.06) 0%, transparent 65%); }
+
+.e2e-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4rem;
+  align-items: start;
+  position: relative;
+  z-index: 1;
+}
+
+.e2e-gradient {
+  background: linear-gradient(135deg, #818cf8, #4ade80);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.e2e-intro {
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--text-muted);
+  margin-bottom: 2rem;
+}
+.e2e-intro strong { color: var(--text); }
+
+/* Layers */
+.e2e-layers { display: flex; flex-direction: column; gap: 0.75rem; }
+
+.e2e-layer {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: rgba(255,255,255,.025);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 12px;
+  transition: border-color .2s, background .2s;
+}
+.e2e-layer:hover { border-color: rgba(99,102,241,.3); background: rgba(255,255,255,.04); }
+.e2e-layer-esy { background: rgba(74,222,128,.03); border-color: rgba(74,222,128,.12); }
+.e2e-layer-esy:hover { border-color: rgba(74,222,128,.3) !important; background: rgba(74,222,128,.05) !important; }
+
+.e2e-layer-num {
+  flex-shrink: 0;
+  width: 2rem; height: 2rem;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.8rem; font-weight: 900;
+  background: rgba(99,102,241,.15); color: #818cf8;
+  border: 1px solid rgba(99,102,241,.2);
+}
+.e2e-layer-num-green { background: rgba(74,222,128,.12); color: #4ade80; border-color: rgba(74,222,128,.2); }
+
+.e2e-layer-title {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.85rem; font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.3rem;
+}
+.e2e-layer-title-green { color: #4ade80; }
+
+.e2e-layer-tag {
+  font-size: 0.65rem; font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 0.15em 0.55em; border-radius: 4px;
+  background: rgba(99,102,241,.1); color: #818cf8;
+}
+.e2e-layer-tag-green { background: rgba(74,222,128,.1); color: #4ade80; }
+
+.e2e-layer-desc {
+  font-size: 0.78rem; line-height: 1.55;
+  color: var(--text-muted); margin: 0;
+}
+.e2e-layer-desc strong { color: var(--text); font-weight: 600; }
+
+/* Demo card */
+.e2e-demo {
+  background: rgba(255,255,255,.025);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 16px;
+  overflow: hidden;
+  transition: border-color .2s;
+}
+.e2e-demo:hover { border-color: rgba(74,222,128,.18); }
+
+.e2e-demo-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem 1.25rem;
+  background: rgba(255,255,255,.02);
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+
+.e2e-shield-wrap {
+  position: relative;
+  width: 2.25rem; height: 2.25rem;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.e2e-ring {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  transform-origin: center;
+}
+.e2e-ring-1 { border: 1px solid rgba(74,222,128,.35); animation: e2e-ring 3s ease-in-out infinite; }
+.e2e-ring-2 { border: 1px solid rgba(74,222,128,.15); animation: e2e-ring 3s ease-in-out infinite .9s; }
+@keyframes e2e-ring {
+  0%,100% { transform: scale(1);   opacity: .7; }
+  50%      { transform: scale(1.7); opacity: 0;  }
+}
+.e2e-dot-live {
+  position: relative;
+  display: inline-flex;
+  width: 0.6rem; height: 0.6rem;
+}
+.e2e-dot-ping {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background: #4ade80;
+  animation: ping .2s cubic-bezier(0,0,.2,1) infinite;
+  opacity: .75;
+}
+@keyframes ping {
+  75%,100% { transform: scale(2); opacity: 0; }
+}
+.e2e-dot-core {
+  position: relative;
+  width: 0.6rem; height: 0.6rem;
+  border-radius: 50%;
+  background: #4ade80;
+}
+
+.e2e-status-label {
+  font-size: 0.68rem; font-weight: 800;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: #4ade80;
+}
+.e2e-fingerprint {
+  font-size: 0.65rem; font-family: var(--font-mono);
+  color: rgba(74,222,128,.5);
+  letter-spacing: 0.05em;
+}
+.e2e-shield-badge {
+  margin-left: auto;
+  color: rgba(74,222,128,.4);
+}
+
+/* Conversation */
+.e2e-convo {
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.e2e-msg-row { display: flex; }
+.e2e-msg-row-out { justify-content: flex-end; }
+.e2e-msg-row-in  { justify-content: flex-start; }
+
+.e2e-bubble {
+  max-width: 80%;
+  padding: 0.5rem 0.9rem;
+  border-radius: 16px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  animation: e2e-pop .4s cubic-bezier(.16,1,.3,1) both;
+}
+@keyframes e2e-pop {
+  from { opacity: 0; transform: translateY(5px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+.e2e-bubble-out {
+  background: #4f46e5; color: white;
+  border-bottom-right-radius: 4px;
+}
+.e2e-bubble-cipher {
+  background: rgba(99,102,241,.1);
+  border: 1px solid rgba(99,102,241,.2);
+  border-bottom-right-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  max-width: 92%;
+  word-break: break-all;
+  animation-delay: .1s;
+}
+.e2e-cipher-shimmer {
+  background: linear-gradient(90deg, #818cf8 0%, #4ade80 45%, #818cf8 90%);
+  background-size: 200% auto;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 3.5s linear infinite;
+}
+@keyframes shimmer {
+  from { background-position: 200% center; }
+  to   { background-position:   0% center; }
+}
+.e2e-bubble-in {
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.08);
+  color: var(--text);
+  border-bottom-left-radius: 4px;
+  animation-delay: .2s;
+}
+
+.e2e-encrypt-step {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.25rem 0;
+}
+.e2e-step-line { flex: 1; height: 1px; background: linear-gradient(to right, transparent, rgba(99,102,241,.3), transparent); }
+.e2e-step-pill {
+  display: flex; align-items: center; gap: 0.35rem;
+  padding: 0.2em 0.65em;
+  border-radius: 999px;
+  font-size: 0.62rem; font-family: var(--font-mono); font-weight: 700;
+  background: rgba(99,102,241,.1);
+  border: 1px solid rgba(99,102,241,.25);
+  color: #818cf8;
+  white-space: nowrap;
+}
+
+.e2e-receiver-label {
+  display: flex; align-items: center; gap: 0.3rem;
+  font-size: 0.62rem; text-transform: uppercase;
+  letter-spacing: .1em; font-weight: 700;
+  color: rgba(255,255,255,.15);
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255,255,255,.05);
+}
+
+.e2e-lock-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.35rem;
+  color: rgba(74,222,128,.45);
+  vertical-align: middle;
+}
+
+/* Responsive */
+@media (max-width: 860px) {
+  .e2e-layout { grid-template-columns: 1fr; gap: 2.5rem; }
+}
 </style>

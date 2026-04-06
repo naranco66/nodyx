@@ -15,6 +15,7 @@ export interface ReactionSummary {
   emoji:          string
   count:          number
   userReactedIds: string[]
+  usernames:      string[]
 }
 
 export interface ChannelMessage {
@@ -231,18 +232,23 @@ export async function toggleReaction(
 }
 
 async function _loadReactions(messageId: string): Promise<ReactionSummary[]> {
-  const { rows } = await db.query<{ emoji: string; count: string; user_ids: string[] }>(
-    `SELECT emoji, COUNT(*)::text AS count, array_agg(user_id::text) AS user_ids
-     FROM channel_message_reactions
-     WHERE message_id = $1
-     GROUP BY emoji
-     ORDER BY MIN(created_at) ASC`,
+  const { rows } = await db.query<{ emoji: string; count: string; user_ids: string[]; usernames: string[] }>(
+    `SELECT r.emoji,
+            COUNT(*)::text                                       AS count,
+            array_agg(r.user_id::text ORDER BY r.created_at)    AS user_ids,
+            array_agg(u.username      ORDER BY r.created_at)    AS usernames
+     FROM channel_message_reactions r
+     JOIN users u ON u.id = r.user_id
+     WHERE r.message_id = $1
+     GROUP BY r.emoji
+     ORDER BY MIN(r.created_at) ASC`,
     [messageId]
   )
   return rows.map(r => ({
     emoji:          r.emoji,
     count:          parseInt(r.count, 10),
     userReactedIds: r.user_ids ?? [],
+    usernames:      r.usernames ?? [],
   }))
 }
 
@@ -251,12 +257,17 @@ export async function getReactionsForMessages(
 ): Promise<Map<string, ReactionSummary[]>> {
   if (messageIds.length === 0) return new Map()
 
-  const { rows } = await db.query<{ message_id: string; emoji: string; count: string; user_ids: string[] }>(
-    `SELECT message_id::text, emoji, COUNT(*)::text AS count, array_agg(user_id::text) AS user_ids
-     FROM channel_message_reactions
-     WHERE message_id = ANY($1::uuid[])
-     GROUP BY message_id, emoji
-     ORDER BY message_id, MIN(created_at) ASC`,
+  const { rows } = await db.query<{ message_id: string; emoji: string; count: string; user_ids: string[]; usernames: string[] }>(
+    `SELECT r.message_id::text,
+            r.emoji,
+            COUNT(*)::text                                       AS count,
+            array_agg(r.user_id::text ORDER BY r.created_at)    AS user_ids,
+            array_agg(u.username      ORDER BY r.created_at)    AS usernames
+     FROM channel_message_reactions r
+     JOIN users u ON u.id = r.user_id
+     WHERE r.message_id = ANY($1::uuid[])
+     GROUP BY r.message_id, r.emoji
+     ORDER BY r.message_id, MIN(r.created_at) ASC`,
     [messageIds]
   )
 
@@ -267,6 +278,7 @@ export async function getReactionsForMessages(
       emoji:          r.emoji,
       count:          parseInt(r.count, 10),
       userReactedIds: r.user_ids ?? [],
+      usernames:      r.usernames ?? [],
     })
   }
   return map

@@ -369,6 +369,26 @@ export function registerSocketIO(server: Server): void {
       if (isUuid(channelId)) socket.leave(`channel:${channelId}`)
     })
 
+    // ── chat:watch ────────────────────────────────────────────────────────────
+    // Join a channel room silently (no history) — used for unread notifications
+    socket.on('chat:watch', async (channelIds: string | string[]) => {
+      const ids = Array.isArray(channelIds) ? channelIds : [channelIds]
+      const validIds = ids.filter(id => isUuid(id)).slice(0, 50)
+      if (!validIds.length) return
+
+      // Verify community membership once
+      const { rows } = await db.query(
+        `SELECT DISTINCT c.id FROM channels c
+         JOIN community_members cm ON c.community_id = cm.community_id
+         WHERE c.id = ANY($1) AND cm.user_id = $2`,
+        [validIds, userId]
+      ).catch(() => ({ rows: [] as any[] }))
+
+      for (const row of rows) {
+        socket.join(`channel:${row.id}`)
+      }
+    })
+
     // ── chat:send ─────────────────────────────────────────────────────────────
     socket.on('chat:send', async (data: { channelId: string; content: string; replyToId?: string | null }) => {
       const rateLimitMs = checkRateLimit(userId, 'chat:send')
@@ -731,6 +751,73 @@ export function registerSocketIO(server: Server): void {
           server.to(`user:${p.user_id}`).emit('dm:typing', { conversationId, userId, username })
         }
       }).catch(() => {})
+    })
+
+    // dm:react — ajouter/retirer une réaction sur un message DM
+    socket.on('dm:react', async (data: { messageId: string; emoji: string }) => {
+      if (checkRateLimit(userId, 'dm:react')) return
+      try {
+        if (!isUuid(data?.messageId) || typeof data?.emoji !== 'string') return
+        const emoji = data.emoji.trim()
+        if (!emoji || emoji.length > 12) return
+
+        // Vérifier que l'user est participant de la conversation contenant ce message
+        const { rows: [access] } = await db.query<{ conversation_id: string }>(
+          `SELECT m.conversation_id FROM dm_messages m
+           JOIN dm_participants p ON p.conversation_id = m.conversation_id
+           WHERE m.id = $1 AND p.user_id = $2 AND m.deleted_at IS NULL`,
+          [data.messageId, userId]
+        )
+        if (!access) return
+
+        // Toggle : si la réaction existe, on la supprime ; sinon on l'ajoute
+        const { rows: [existing] } = await db.query(
+          `SELECT id FROM dm_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+          [data.messageId, userId, emoji]
+        )
+        if (existing) {
+          await db.query(`DELETE FROM dm_reactions WHERE id = $1`, [existing.id])
+        } else {
+          await db.query(
+            `INSERT INTO dm_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)
+             ON CONFLICT DO NOTHING`,
+            [data.messageId, userId, emoji]
+          )
+        }
+
+        // Récupérer le résumé des réactions pour ce message
+        const { rows: summary } = await db.query<{ emoji: string; count: string; user_ids: string[]; usernames: string[] }>(
+          `SELECT r.emoji,
+                  COUNT(*) as count,
+                  array_agg(r.user_id::text ORDER BY r.created_at) as user_ids,
+                  array_agg(u.username    ORDER BY r.created_at) as usernames
+           FROM dm_reactions r
+           JOIN users u ON u.id = r.user_id
+           WHERE r.message_id = $1
+           GROUP BY r.emoji ORDER BY MIN(r.created_at)`,
+          [data.messageId]
+        )
+        const reactions = summary.map(r => ({
+          emoji:     r.emoji,
+          count:     parseInt(r.count),
+          userIds:   r.user_ids,
+          usernames: r.usernames,
+        }))
+
+        // Broadcaster à tous les participants
+        const { rows: participants } = await db.query<{ user_id: string }>(
+          `SELECT user_id FROM dm_participants WHERE conversation_id = $1`,
+          [access.conversation_id]
+        )
+        for (const p of participants) {
+          server.to(`user:${p.user_id}`).emit('dm:reaction_update', {
+            messageId: data.messageId,
+            reactions,
+          })
+        }
+      } catch (err) {
+        console.error('[dm:react] Error:', err)
+      }
     })
 
     // dm:read — marquer comme lu et confirmer
