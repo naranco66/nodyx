@@ -39,10 +39,21 @@
 		_decryptFailed?: boolean
 		_barbarizing?: boolean
 		_barbarText?: string
+		_systemMessage?: boolean
+	}
+
+	interface Participant {
+		id: string
+		username: string
+		avatar: string | null
+		name_color: string | null
 	}
 
 	interface Conversation {
 		id: string
+		is_group: boolean
+		group_name: string | null
+		participants: Participant[]
 		other_id: string
 		other_username: string
 		other_avatar: string | null
@@ -162,11 +173,13 @@
 			sock.off('dm:edited', onDmEdited)
 			sock.off('dm:deleted', onDmDeleted)
 			sock.off('dm:reaction_update', onDmReactionUpdate)
+			sock.off('dm:participant_added', onParticipantAdded)
 			sock.on('dm:message', onDmMessage)
 			sock.on('dm:typing', onDmTyping)
 			sock.on('dm:edited', onDmEdited)
 			sock.on('dm:deleted', onDmDeleted)
 			sock.on('dm:reaction_update', onDmReactionUpdate)
+			sock.on('dm:participant_added', onParticipantAdded)
 			sock.on('dm:read_ack', () => {})
 		}
 		const sock = getSocket()
@@ -249,6 +262,85 @@
 
 	function onDmReactionUpdate({ messageId, reactions }: { messageId: string; reactions: DmReaction[] }) {
 		messages = messages.map(m => m.id === messageId ? { ...m, reactions } : m)
+	}
+
+	function onParticipantAdded({ conversation_id, user, invited_by }: { conversation_id: string; user: Participant; invited_by: string }) {
+		if (conversation_id !== conversationId) return
+		if (!conversation) return
+		// Ajouter le nouveau participant si pas déjà là
+		const already = conversation.participants.find(p => p.id === user.id)
+		if (!already) {
+			const updated = {
+				...conversation,
+				is_group: true,
+				participants: [...conversation.participants, user],
+			}
+			conversation = updated
+			// Mettre aussi à jour la sidebar conversations
+			conversations = conversations.map(c => c.id === conversation_id ? updated : c)
+		}
+		// Message système local
+		messages = [...messages, {
+			id: crypto.randomUUID(),
+			conversation_id,
+			sender_id: '',
+			sender_username: '',
+			sender_avatar: null,
+			sender_name_color: null,
+			content: `${invited_by} a ajouté ${user.username} à la conversation`,
+			created_at: new Date().toISOString(),
+			deleted_at: null,
+			_systemMessage: true,
+		}]
+		tick().then(scrollToBottom)
+	}
+
+	// ── Invite panel ────────────────────────────────────────────────────────────
+	let showInvite = $state(false)
+	let inviteQuery = $state('')
+	let inviteResults: Participant[] = $state([])
+	let inviteSearching = $state(false)
+	let inviteTimeout: ReturnType<typeof setTimeout> | null = null
+	let inviting = $state<string | null>(null)  // userId en cours d'invitation
+
+	async function searchInvite(q: string) {
+		if (q.trim().length < 2) { inviteResults = []; return }
+		inviteSearching = true
+		try {
+			const res = await apiFetch(fetch, `/users/search?q=${encodeURIComponent(q)}`, {
+				headers: { Authorization: `Bearer ${data.token}` }
+			})
+			if (res.ok) {
+				const j = await res.json()
+				// Exclure les participants déjà dans la conversation
+				const existingIds = new Set([
+					currentUserId,
+					...(conversation?.participants.map(p => p.id) ?? [])
+				])
+				inviteResults = (j.users ?? []).filter((u: Participant) => !existingIds.has(u.id))
+			}
+		} finally { inviteSearching = false }
+	}
+
+	function onInviteInput() {
+		if (inviteTimeout) clearTimeout(inviteTimeout)
+		inviteTimeout = setTimeout(() => searchInvite(inviteQuery), 300)
+	}
+
+	async function inviteUser(userId: string) {
+		inviting = userId
+		try {
+			const res = await apiFetch(fetch, `/dm/conversations/${conversationId}/participants`, {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${data.token}`, 'Content-Type': 'application/json' },
+				body: JSON.stringify({ userId })
+			})
+			if (res.ok) {
+				inviteQuery = ''
+				inviteResults = []
+				showInvite = false
+			}
+		} finally { inviting = null }
 	}
 
 	function toggleReaction(msg: DmMessage, emoji: string) {
@@ -478,6 +570,13 @@
 		return msgs[i].sender_id !== msgs[i + 1].sender_id
 	}
 
+	function convLabel(conv: Conversation): string {
+		if (conv.is_group) {
+			return conv.group_name ?? conv.participants.map(p => p.username).join(', ')
+		}
+		return conv.other_username
+	}
+
 	// Couleurs du shield E2E
 	const shieldColor = $derived(
 		e2eStatus === 'active'   ? { dot: '#4ade80', glow: 'rgba(74,222,128,0.25)', label: 'E2E' } :
@@ -488,7 +587,7 @@
 </script>
 
 <svelte:head>
-	<title>DM — {conversation?.other_username ?? tFn('dm.title')}</title>
+	<title>DM — {conversation ? convLabel(conversation) : tFn('dm.title')}</title>
 </svelte:head>
 
 <!-- Layout deux colonnes : sidebar + zone chat -->
@@ -522,21 +621,36 @@
 						{conv.id === conversationId
 							? 'bg-indigo-600/15 border border-indigo-500/20'
 							: 'hover:bg-white/[0.04] border border-transparent'}">
-					<!-- Avatar -->
+					<!-- Avatar(s) -->
 					<div class="relative shrink-0">
-						{#if conv.other_avatar}
+						{#if conv.is_group}
+							<div class="w-8 h-8 relative">
+								{#each conv.participants.slice(0, 2) as p, i}
+									{#if p.avatar}
+										<img src={p.avatar} alt={p.username}
+											class="w-5 h-5 rounded-full object-cover absolute border border-gray-950"
+											style={i === 0 ? 'top:0;left:0' : 'bottom:0;right:0'}/>
+									{:else}
+										<div class="w-5 h-5 rounded-full bg-indigo-600/30 border border-gray-950 flex items-center justify-center text-[9px] font-bold absolute"
+											style={`${i === 0 ? 'top:0;left:0' : 'bottom:0;right:0'}; color: ${p.name_color ?? '#818cf8'}`}>
+											{p.username[0].toUpperCase()}
+										</div>
+									{/if}
+								{/each}
+							</div>
+						{:else if conv.other_avatar}
 							<img src={conv.other_avatar} alt={conv.other_username} class="w-8 h-8 rounded-full object-cover"/>
 						{:else}
 							<div class="w-8 h-8 rounded-full bg-indigo-600/20 border border-indigo-500/15 flex items-center justify-center text-xs font-bold"
 								style={conv.other_name_color ? `color: ${conv.other_name_color}` : 'color: #818cf8'}>
-								{conv.other_username[0].toUpperCase()}
+								{(conv.other_username ?? '?')[0].toUpperCase()}
 							</div>
 						{/if}
 					</div>
 					<span class="text-sm font-medium truncate
 						{conv.id === conversationId ? 'text-white' : 'text-gray-400'}"
-						style={conv.id === conversationId && conv.other_name_color ? `color: ${conv.other_name_color}` : ''}>
-						{conv.other_username}
+						style={conv.id === conversationId && !conv.is_group && conv.other_name_color ? `color: ${conv.other_name_color}` : ''}>
+						{convLabel(conv)}
 					</span>
 				</a>
 			{/each}
@@ -556,54 +670,199 @@
 			</a>
 
 			{#if conversation}
-				<!-- Avatar -->
-				{#if conversation.other_avatar}
-					<img src={conversation.other_avatar} alt={conversation.other_username} class="w-8 h-8 rounded-full object-cover shrink-0 ring-2 ring-white/[0.06]"/>
-				{:else}
-					<div class="w-8 h-8 rounded-full bg-indigo-600/20 border border-indigo-500/20 flex items-center justify-center shrink-0 text-sm font-bold"
-						style={conversation.other_name_color ? `color: ${conversation.other_name_color}` : 'color: #818cf8'}>
-						{conversation.other_username[0].toUpperCase()}
+				{#if conversation.is_group}
+					<!-- Avatar groupe (stack) -->
+					<div class="w-9 h-9 relative shrink-0">
+						{#each conversation.participants.slice(0, 2) as p, i}
+							{#if p.avatar}
+								<img src={p.avatar} alt={p.username}
+									class="w-6 h-6 rounded-full object-cover absolute border-2 border-gray-950"
+									style={i === 0 ? 'top:0;left:0' : 'bottom:0;right:0'}/>
+							{:else}
+								<div class="w-6 h-6 rounded-full bg-indigo-600/30 border-2 border-gray-950 flex items-center justify-center text-[10px] font-bold absolute"
+									style={`${i === 0 ? 'top:0;left:0' : 'bottom:0;right:0'}; color: ${p.name_color ?? '#818cf8'}`}>
+									{p.username[0].toUpperCase()}
+								</div>
+							{/if}
+						{/each}
 					</div>
-				{/if}
 
-				<!-- Nom + lien profil -->
-				<div class="flex-1 min-w-0">
-					<a href="/users/{conversation.other_username}"
-						class="text-sm font-semibold hover:underline block truncate"
-						style={conversation.other_name_color ? `color: ${conversation.other_name_color}` : 'color: white'}>
-						{conversation.other_username}
-					</a>
-					<span class="text-[11px] text-gray-600">{tFn('dm.private_message')}</span>
-				</div>
+					<!-- Nom groupe + membres -->
+					<div class="flex-1 min-w-0">
+						<span class="text-sm font-semibold text-white block truncate">{convLabel(conversation)}</span>
+						<span class="text-[11px] text-gray-600">{conversation.participants.length + 1} {tFn('dm.members')}</span>
+					</div>
 
-				<!-- Lien profil icône -->
-				<a href="/users/{conversation.other_username}" aria-label={tFn('dm.view_profile')} class="p-1.5 rounded-lg hover:bg-white/[0.06] text-gray-600 hover:text-gray-300 transition-colors shrink-0">
-					<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-						<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-					</svg>
-				</a>
+					<!-- Bouton inviter -->
+					<div class="relative shrink-0">
+						<button
+							onclick={() => showInvite = !showInvite}
+							class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-colors
+								{showInvite ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40' : 'bg-white/[0.05] hover:bg-white/[0.09] text-gray-400 hover:text-white border border-white/[0.08]'}"
+							title={tFn('dm.invite_member')}
+						>
+							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+							</svg>
+							{tFn('dm.invite_member')}
+						</button>
 
-				<!-- Shield E2E -->
-				{#if e2eStatus !== 'inactive' && e2eStatus !== 'unknown'}
-					<div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border shrink-0 cursor-default"
-						style="background: {shieldColor.glow}; border-color: {shieldColor.dot}30"
-						title={esyFingerprint ? `ESY: ${esyFingerprint}` : tFn('dm.e2e_tooltip_' + e2eStatus)}>
-						<!-- Dot pulsant -->
-						<span class="relative flex w-2 h-2">
-							<span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60"
-								style="background: {shieldColor.dot}"></span>
-							<span class="relative inline-flex rounded-full w-2 h-2"
-								style="background: {shieldColor.dot}"></span>
-						</span>
-						<!-- Icône cadenas -->
-						<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-							style="color: {shieldColor.dot}">
-							<rect x="5" y="11" width="14" height="10" rx="2"/>
-							<path d="M8 11V7a4 4 0 018 0v4"/>
+						<!-- Dropdown invite -->
+						{#if showInvite}
+							<div class="absolute top-full right-0 mt-1.5 w-64 bg-gray-900 border border-white/[0.08] rounded-xl shadow-2xl z-30 p-3">
+								<p class="text-[11px] text-gray-500 font-semibold uppercase tracking-wider mb-2">{tFn('dm.invite_member')}</p>
+								<div class="flex items-center gap-2 bg-white/[0.04] border border-white/[0.06] rounded-lg px-2.5 py-1.5 focus-within:border-indigo-500/40 transition-all mb-2">
+									<svg class="w-3 h-3 text-gray-600 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+										<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+									</svg>
+									<input
+										type="text"
+										bind:value={inviteQuery}
+										oninput={onInviteInput}
+										placeholder={tFn('dm.search_placeholder')}
+										class="flex-1 bg-transparent text-xs text-white placeholder-gray-600 outline-none"
+									/>
+									{#if inviteSearching}
+										<div class="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin shrink-0"></div>
+									{/if}
+								</div>
+								{#if inviteResults.length > 0}
+									<div class="space-y-0.5 max-h-40 overflow-y-auto">
+										{#each inviteResults as u}
+											<button
+												onclick={() => inviteUser(u.id)}
+												disabled={inviting === u.id}
+												class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-left disabled:opacity-50"
+											>
+												{#if u.avatar}
+													<img src={u.avatar} alt={u.username} class="w-6 h-6 rounded-full object-cover shrink-0"/>
+												{:else}
+													<div class="w-6 h-6 rounded-full bg-indigo-600/25 flex items-center justify-center shrink-0 text-[10px] font-bold text-indigo-300">
+														{u.username[0].toUpperCase()}
+													</div>
+												{/if}
+												<span class="text-sm text-white flex-1 truncate">{u.username}</span>
+												{#if inviting === u.id}
+													<div class="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin shrink-0"></div>
+												{/if}
+											</button>
+										{/each}
+									</div>
+								{:else if inviteQuery.trim().length >= 2 && !inviteSearching}
+									<p class="text-xs text-gray-600 text-center py-2">{tFn('search.no_results')}</p>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				{:else}
+					<!-- Avatar 1:1 -->
+					{#if conversation.other_avatar}
+						<img src={conversation.other_avatar} alt={conversation.other_username} class="w-8 h-8 rounded-full object-cover shrink-0 ring-2 ring-white/[0.06]"/>
+					{:else}
+						<div class="w-8 h-8 rounded-full bg-indigo-600/20 border border-indigo-500/20 flex items-center justify-center shrink-0 text-sm font-bold"
+							style={conversation.other_name_color ? `color: ${conversation.other_name_color}` : 'color: #818cf8'}>
+							{(conversation.other_username ?? '?')[0].toUpperCase()}
+						</div>
+					{/if}
+
+					<!-- Nom + lien profil -->
+					<div class="flex-1 min-w-0">
+						<a href="/users/{conversation.other_username}"
+							class="text-sm font-semibold hover:underline block truncate"
+							style={conversation.other_name_color ? `color: ${conversation.other_name_color}` : 'color: white'}>
+							{conversation.other_username}
+						</a>
+						<span class="text-[11px] text-gray-600">{tFn('dm.private_message')}</span>
+					</div>
+
+					<!-- Lien profil icône -->
+					<a href="/users/{conversation.other_username}" aria-label={tFn('dm.view_profile')} class="p-1.5 rounded-lg hover:bg-white/[0.06] text-gray-600 hover:text-gray-300 transition-colors shrink-0">
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+							<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
 						</svg>
-						{#if shieldColor.label}
-							<span class="text-[10px] font-bold tracking-wider"
-								style="color: {shieldColor.dot}">{shieldColor.label}</span>
+					</a>
+
+					<!-- Shield E2E -->
+					{#if e2eStatus !== 'inactive' && e2eStatus !== 'unknown'}
+						<div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border shrink-0 cursor-default"
+							style="background: {shieldColor.glow}; border-color: {shieldColor.dot}30"
+							title={esyFingerprint ? `ESY: ${esyFingerprint}` : tFn('dm.e2e_tooltip_' + e2eStatus)}>
+							<span class="relative flex w-2 h-2">
+								<span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60"
+									style="background: {shieldColor.dot}"></span>
+								<span class="relative inline-flex rounded-full w-2 h-2"
+									style="background: {shieldColor.dot}"></span>
+							</span>
+							<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+								style="color: {shieldColor.dot}">
+								<rect x="5" y="11" width="14" height="10" rx="2"/>
+								<path d="M8 11V7a4 4 0 018 0v4"/>
+							</svg>
+							{#if shieldColor.label}
+								<span class="text-[10px] font-bold tracking-wider"
+									style="color: {shieldColor.dot}">{shieldColor.label}</span>
+							{/if}
+						</div>
+					{/if}
+
+					<!-- Bouton inviter (1:1 → convertir en groupe) -->
+					<div class="relative shrink-0">
+						<button
+							onclick={() => showInvite = !showInvite}
+							class="p-1.5 rounded-lg transition-colors
+								{showInvite ? 'bg-indigo-600/20 text-indigo-400' : 'hover:bg-white/[0.06] text-gray-600 hover:text-gray-300'}"
+							title={tFn('dm.invite_member')}
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/>
+							</svg>
+						</button>
+
+						<!-- Dropdown invite -->
+						{#if showInvite}
+							<div class="absolute top-full right-0 mt-1.5 w-64 bg-gray-900 border border-white/[0.08] rounded-xl shadow-2xl z-30 p-3">
+								<p class="text-[11px] text-gray-500 font-semibold uppercase tracking-wider mb-2">{tFn('dm.invite_member')}</p>
+								<div class="flex items-center gap-2 bg-white/[0.04] border border-white/[0.06] rounded-lg px-2.5 py-1.5 focus-within:border-indigo-500/40 transition-all mb-2">
+									<svg class="w-3 h-3 text-gray-600 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+										<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+									</svg>
+									<input
+										type="text"
+										bind:value={inviteQuery}
+										oninput={onInviteInput}
+										placeholder={tFn('dm.search_placeholder')}
+										class="flex-1 bg-transparent text-xs text-white placeholder-gray-600 outline-none"
+									/>
+									{#if inviteSearching}
+										<div class="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin shrink-0"></div>
+									{/if}
+								</div>
+								{#if inviteResults.length > 0}
+									<div class="space-y-0.5 max-h-40 overflow-y-auto">
+										{#each inviteResults as u}
+											<button
+												onclick={() => inviteUser(u.id)}
+												disabled={inviting === u.id}
+												class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-left disabled:opacity-50"
+											>
+												{#if u.avatar}
+													<img src={u.avatar} alt={u.username} class="w-6 h-6 rounded-full object-cover shrink-0"/>
+												{:else}
+													<div class="w-6 h-6 rounded-full bg-indigo-600/25 flex items-center justify-center shrink-0 text-[10px] font-bold text-indigo-300">
+														{u.username[0].toUpperCase()}
+													</div>
+												{/if}
+												<span class="text-sm text-white flex-1 truncate">{u.username}</span>
+												{#if inviting === u.id}
+													<div class="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin shrink-0"></div>
+												{/if}
+											</button>
+										{/each}
+									</div>
+								{:else if inviteQuery.trim().length >= 2 && !inviteSearching}
+									<p class="text-xs text-gray-600 text-center py-2">{tFn('search.no_results')}</p>
+								{/if}
+							</div>
 						{/if}
 					</div>
 				{/if}
@@ -635,6 +894,14 @@
 					{@const isMine = msg.sender_id === currentUserId}
 					{@const first = isFirstInGroup(group.msgs, i)}
 					{@const last = isLastInGroup(group.msgs, i)}
+
+					{#if msg._systemMessage}
+						<div class="flex items-center gap-3 py-2">
+							<div class="flex-1 h-px bg-white/[0.04]"></div>
+							<span class="text-[10px] text-gray-600 italic px-2 shrink-0">{msg.content}</span>
+							<div class="flex-1 h-px bg-white/[0.04]"></div>
+						</div>
+					{:else}
 
 					<div class="flex {isMine ? 'justify-end' : 'justify-start'} {first ? 'mt-3' : 'mt-[2px]'} group/msg">
 						<!-- Avatar peer (dernier du groupe seulement) -->
@@ -772,14 +1039,22 @@
 							{/if}
 						</div>
 					</div>
+					{/if}
 				{/each}
 			{/each}
 
 			<!-- Indicateur de frappe -->
 			{#if typingLabel}
 				<div class="flex items-end gap-2 px-3 pb-2 mt-1" aria-live="polite">
-					<!-- Avatar peer -->
-					{#if conversation?.other_avatar}
+					<!-- Avatar (premier peer ou groupe) -->
+					{#if conversation?.is_group}
+						{#if conversation.participants[0]?.avatar}
+							<img src={conversation.participants[0].avatar} alt="" class="w-5 h-5 rounded-full object-cover shrink-0 mb-0.5 opacity-70" />
+						{:else}
+							<div class="w-5 h-5 rounded-full shrink-0 mb-0.5 opacity-70 flex items-center justify-center text-[8px] font-bold text-white"
+							     style="background: #4f46e5">{conversation.participants[0]?.username?.[0]?.toUpperCase() ?? '?'}</div>
+						{/if}
+					{:else if conversation?.other_avatar}
 						<img src={conversation.other_avatar} alt="" class="w-5 h-5 rounded-full object-cover shrink-0 mb-0.5 opacity-70" />
 					{:else}
 						<div class="w-5 h-5 rounded-full shrink-0 mb-0.5 opacity-70 flex items-center justify-center text-[8px] font-bold text-white"
@@ -810,7 +1085,7 @@
 					bind:value={messageInput}
 					onkeydown={onKeydown}
 					oninput={emitTyping}
-					placeholder={conversation ? tFn('dm.message_placeholder_user', { user: conversation.other_username }) : tFn('dm.message_placeholder')}
+					placeholder={conversation ? tFn('dm.message_placeholder_user', { user: convLabel(conversation) }) : tFn('dm.message_placeholder')}
 					rows="1"
 					class="flex-1 bg-transparent text-sm text-white placeholder-gray-600 outline-none resize-none max-h-36 leading-relaxed"
 					style="field-sizing: content;"

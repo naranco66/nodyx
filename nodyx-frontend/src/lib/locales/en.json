@@ -1082,5 +1082,7 @@
   "dm.decrypt_failed": "Unable to decrypt",
   "dm.e2e_tooltip_active": "End-to-end encryption active",
   "dm.e2e_tooltip_partial": "Partial encryption — peer hasn't enabled E2E yet",
-  "common.edited": "edited"
+  "common.edited": "edited",
+  "dm.members": "members",
+  "dm.invite_member": "Invite"
 }

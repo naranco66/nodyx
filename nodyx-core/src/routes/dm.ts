@@ -24,19 +24,21 @@ function sanitizeDM(raw: string): string {
 
 /** Trouve ou crée une conversation 1:1 entre deux users. Retourne l'id. */
 async function findOrCreateConversation(userA: string, userB: string): Promise<string> {
-  // Cherche une conversation existante où les deux users sont participants
+  // Cherche une conversation 1:1 existante (is_group = false, exactement ces deux participants)
   const { rows } = await db.query<{ id: string }>(`
     SELECT p1.conversation_id AS id
     FROM   dm_participants p1
     JOIN   dm_participants p2 ON p2.conversation_id = p1.conversation_id
+    JOIN   dm_conversations c  ON c.id = p1.conversation_id
     WHERE  p1.user_id = $1
     AND    p2.user_id = $2
+    AND    c.is_group = FALSE
     LIMIT  1
   `, [userA, userB])
 
   if (rows[0]) return rows[0].id
 
-  // Crée la conversation + les deux participants
+  // Crée la conversation 1:1 + les deux participants
   const { rows: [conv] } = await db.query<{ id: string }>(
     `INSERT INTO dm_conversations DEFAULT VALUES RETURNING id`
   )
@@ -80,15 +82,26 @@ export default async function dmRoutes(app: FastifyInstance) {
       SELECT
         c.id,
         c.created_at,
-        -- L'autre participant
-        u.id          AS other_id,
-        u.username    AS other_username,
-        u.avatar      AS other_avatar,
-        up.name_color AS other_name_color,
+        c.is_group,
+        c.name        AS group_name,
+        -- Tous les autres participants (pour affichage groupe et 1:1)
+        (
+          SELECT json_agg(json_build_object(
+            'id',         u2.id,
+            'username',   u2.username,
+            'avatar',     u2.avatar,
+            'name_color', up2.name_color
+          ) ORDER BY u2.username)
+          FROM   dm_participants p2
+          JOIN   users u2 ON u2.id = p2.user_id
+          LEFT JOIN user_profiles up2 ON up2.user_id = u2.id
+          WHERE  p2.conversation_id = c.id AND p2.user_id != $1
+        ) AS participants,
         -- Dernier message
-        lm.id        AS last_message_id,
-        lm.content   AS last_message_content,
-        lm.sender_id AS last_message_sender_id,
+        lm.id         AS last_message_id,
+        lm.content    AS last_message_content,
+        lm.is_encrypted AS last_message_encrypted,
+        lm.sender_id  AS last_message_sender_id,
         lm.created_at AS last_message_at,
         -- Nombre de messages non-lus
         (
@@ -100,12 +113,9 @@ export default async function dmRoutes(app: FastifyInstance) {
           AND    m2.deleted_at IS NULL
         ) AS unread_count
       FROM   dm_conversations c
-      JOIN   dm_participants  p_me    ON p_me.conversation_id  = c.id AND p_me.user_id = $1
-      JOIN   dm_participants  p_other ON p_other.conversation_id = c.id AND p_other.user_id != $1
-      JOIN   users u ON u.id = p_other.user_id
-      LEFT JOIN user_profiles up ON up.user_id = u.id
+      JOIN   dm_participants p_me ON p_me.conversation_id = c.id AND p_me.user_id = $1
       LEFT JOIN LATERAL (
-        SELECT id, content, sender_id, created_at
+        SELECT id, content, is_encrypted, sender_id, created_at
         FROM   dm_messages
         WHERE  conversation_id = c.id AND deleted_at IS NULL
         ORDER  BY created_at DESC
@@ -114,7 +124,74 @@ export default async function dmRoutes(app: FastifyInstance) {
       ORDER  BY COALESCE(lm.created_at, c.created_at) DESC
     `, [me])
 
-    return reply.send({ conversations: rows })
+    // Compat 1:1 : exposer other_id/other_username/other_avatar/other_name_color
+    const conversations = rows.map((c: any) => {
+      const first = c.participants?.[0] ?? null
+      return {
+        ...c,
+        other_id:         first?.id         ?? null,
+        other_username:   first?.username    ?? '[supprimé]',
+        other_avatar:     first?.avatar      ?? null,
+        other_name_color: first?.name_color  ?? null,
+      }
+    })
+
+    return reply.send({ conversations })
+  })
+
+  // POST /api/v1/dm/conversations/:id/participants — inviter un membre dans une conversation
+  app.post('/conversations/:id/participants', {
+    preHandler: [rateLimit, requireAuth],
+  }, async (request, reply) => {
+    const me = request.user!.userId
+    const { id } = request.params as { id: string }
+    const { userId } = request.body as { userId?: string }
+
+    if (!userId) return reply.code(400).send({ error: 'Missing userId' })
+    if (userId === me) return reply.code(400).send({ error: 'Cannot invite yourself' })
+
+    // Vérifier que l'invitant est participant
+    const { rows: [part] } = await db.query(
+      `SELECT 1 FROM dm_participants WHERE conversation_id = $1 AND user_id = $2`, [id, me]
+    )
+    if (!part) return reply.code(403).send({ error: 'Not a participant' })
+
+    // Vérifier que l'invité existe
+    const { rows: [target] } = await db.query(
+      `SELECT id, username, avatar FROM users WHERE id = $1`, [userId]
+    )
+    if (!target) return reply.code(404).send({ error: 'User not found' })
+
+    // Vérifier qu'il n'est pas déjà dans la conversation
+    const { rows: [already] } = await db.query(
+      `SELECT 1 FROM dm_participants WHERE conversation_id = $1 AND user_id = $2`, [id, userId]
+    )
+    if (already) return reply.code(409).send({ error: 'Already a participant' })
+
+    // Convertir en groupe si 1:1, ajouter le participant
+    await db.query(
+      `UPDATE dm_conversations SET is_group = TRUE WHERE id = $1`, [id]
+    )
+    await db.query(
+      `INSERT INTO dm_participants (conversation_id, user_id) VALUES ($1, $2)`, [id, userId]
+    )
+
+    // Notifier tous les participants existants
+    const { rows: participants } = await db.query<{ user_id: string }>(
+      `SELECT user_id FROM dm_participants WHERE conversation_id = $1`, [id]
+    )
+    const { rows: [inviter] } = await db.query(
+      `SELECT username FROM users WHERE id = $1`, [me]
+    )
+    for (const p of participants) {
+      io?.to(`user:${p.user_id}`).emit('dm:participant_added', {
+        conversation_id: id,
+        user: { id: target.id, username: target.username, avatar: target.avatar },
+        invited_by: inviter.username,
+      })
+    }
+
+    return reply.code(201).send({ ok: true })
   })
 
   // GET /api/v1/dm/conversations/:id/messages — historique paginé

@@ -1082,5 +1082,7 @@
   "dm.decrypt_failed": "Impossible de déchiffrer",
   "dm.e2e_tooltip_active": "Chiffrement bout en bout actif",
   "dm.e2e_tooltip_partial": "Chiffrement partiel — l'autre n'a pas encore activé E2E",
-  "common.edited": "modifié"
+  "common.edited": "modifié",
+  "dm.members": "membres",
+  "dm.invite_member": "Inviter"
 }

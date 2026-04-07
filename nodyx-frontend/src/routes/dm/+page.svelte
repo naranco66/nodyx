@@ -8,16 +8,34 @@
 
 	let { data } = $props()
 
+	interface Participant {
+		id: string
+		username: string
+		avatar: string | null
+		name_color: string | null
+	}
+
 	interface Conversation {
 		id: string
+		is_group: boolean
+		group_name: string | null
+		participants: Participant[]
 		other_id: string
 		other_username: string
 		other_avatar: string | null
 		other_name_color: string | null
 		last_message_content: string | null
+		last_message_encrypted: boolean
 		last_message_sender_id: string | null
 		last_message_at: string | null
 		unread_count: number
+	}
+
+	function convLabel(conv: Conversation): string {
+		if (conv.is_group) {
+			return conv.group_name ?? conv.participants.map(p => p.username).join(', ')
+		}
+		return conv.other_username
 	}
 
 	let conversations: Conversation[] = $state(data.conversations ?? [])
@@ -176,14 +194,30 @@
 							href="/dm/{conv.id}"
 							class="dm-row flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl transition-all relative group"
 						>
-							<!-- Avatar avec badge non-lu -->
+							<!-- Avatar(s) avec badge non-lu -->
 							<div class="relative shrink-0">
-								{#if conv.other_avatar}
+								{#if conv.is_group}
+									<!-- Stack de 2 avatars pour les groupes -->
+									<div class="w-9 h-9 relative">
+										{#each conv.participants.slice(0, 2) as p, i}
+											{#if p.avatar}
+												<img src={p.avatar} alt={p.username}
+													class="w-6 h-6 rounded-full object-cover absolute border-2 border-gray-950"
+													style={i === 0 ? 'top:0;left:0' : 'bottom:0;right:0'}/>
+											{:else}
+												<div class="w-6 h-6 rounded-full bg-indigo-600/30 border-2 border-gray-950 flex items-center justify-center text-[10px] font-bold absolute"
+													style={`${i === 0 ? 'top:0;left:0' : 'bottom:0;right:0'}; color: ${p.name_color ?? '#818cf8'}`}>
+													{p.username[0].toUpperCase()}
+												</div>
+											{/if}
+										{/each}
+									</div>
+								{:else if conv.other_avatar}
 									<img src={conv.other_avatar} alt={conv.other_username} class="w-9 h-9 rounded-full object-cover"/>
 								{:else}
 									<div class="w-9 h-9 rounded-full bg-indigo-600/20 border border-indigo-500/20 flex items-center justify-center text-sm font-bold"
 										style={conv.other_name_color ? `color: ${conv.other_name_color}` : 'color: #818cf8'}>
-										{conv.other_username[0].toUpperCase()}
+										{(conv.other_username ?? '?')[0].toUpperCase()}
 									</div>
 								{/if}
 								{#if conv.unread_count > 0}
@@ -197,8 +231,8 @@
 							<div class="flex-1 min-w-0">
 								<div class="flex items-baseline justify-between gap-1">
 									<span class="text-sm font-semibold truncate {conv.unread_count > 0 ? 'text-white' : 'text-gray-300'}"
-										style={conv.other_name_color ? `color: ${conv.other_name_color}` : ''}>
-										{conv.other_username}
+										style={!conv.is_group && conv.other_name_color ? `color: ${conv.other_name_color}` : ''}>
+										{convLabel(conv)}
 									</span>
 									{#if conv.last_message_at}
 										<span class="text-[10px] text-gray-700 shrink-0">{formatTime(conv.last_message_at)}</span>
@@ -206,7 +240,11 @@
 								</div>
 								<p class="text-[11px] truncate mt-0.5 {conv.unread_count > 0 ? 'text-gray-400 font-medium' : 'text-gray-600'}">
 									{#if conv.last_message_content}
-										{conv.last_message_sender_id === currentUserId ? tFn('dm.you_prefix') : ''}{truncate(conv.last_message_content)}
+										{#if conv.last_message_encrypted}
+											<span class="opacity-60">🔒 Message chiffré</span>
+										{:else}
+											{conv.last_message_sender_id === currentUserId ? tFn('dm.you_prefix') : ''}{truncate(conv.last_message_content)}
+										{/if}
 									{:else}
 										<span class="italic">{tFn('dm.no_message')}</span>
 									{/if}
