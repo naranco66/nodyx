@@ -6,10 +6,10 @@
 
 ### *"The network is the people."*
 
-**The community platform that no one can take from you.**
-Forum + Chat + Voice + P2P Canvas — on your server, under your control, forever.
+**The self-hosted community platform you actually own.**  
+Forum + Chat + Voice + P2P + Homepage Builder + Widget SDK — one server, one community, forever.
 
-[![Version](https://img.shields.io/badge/version-v2.0.0-7c3aed)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v2.1.0-7c3aed)](CHANGELOG.md)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![CI](https://github.com/Pokled/Nodyx/actions/workflows/ci.yml/badge.svg)](https://github.com/Pokled/Nodyx/actions/workflows/ci.yml)
 [![Stack](https://img.shields.io/badge/stack-Fastify%20%2B%20SvelteKit%20%2B%20PostgreSQL%20%2B%20Rust-green)](docs/en/ARCHITECTURE.md)
@@ -40,7 +40,7 @@ Forum + Chat + Voice + P2P Canvas — on your server, under your control, foreve
 
 - **Discord** locks communities inside a private platform — your 10 years of history vanish if they close or ban you
 - **Forums** are slow and fragmented — no voice, no real-time, invisible to your members' daily workflow
-- **Self-hosted tools** rarely combine chat + voice + searchable knowledge in a single install
+- **Self-hosted tools** rarely combine chat + voice + searchable knowledge in a single install — and none let you build your own homepage
 
 Nodyx brings them together. One command. Your server. Forever.
 
@@ -93,8 +93,73 @@ Works on a Raspberry Pi behind a home router. No domain. No open ports. No cloud
 | Event calendar (OSM maps, RSVP, SEO) | ✅ | ❌ | ❌ | ⚠️ | ❌ |
 | Cross-instance global search | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Per-user profile themes (app-wide) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Homepage Builder — 11 layout zones, drag & drop** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Widget Store — install external widgets via .zip** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Widget SDK — build custom widgets, no framework needed** | ✅ | ❌ | ❌ | ❌ | ❌ |
 
-> Nodyx is the only self-hosted platform combining an **indexed forum**, **real-time chat**, **P2P voice**, **collaborative canvas**, and a **federated directory** in a single install.
+> Nodyx is the only self-hosted platform combining an **indexed forum**, **real-time chat**, **P2P voice**, **collaborative canvas**, a **federated directory**, and a **fully extensible homepage** in a single install.
+
+---
+
+## Homepage Builder + Widget SDK
+
+Nodyx ships with a **drag-and-drop Homepage Builder** and a complete **Widget SDK** — two features that no other self-hosted community platform offers.
+
+### 11 layout zones
+
+Place widgets anywhere on your homepage. Positions include:
+
+```
+banner          → full-width top announcement strip
+hero            → main hero section
+stats-bar       → community counters (members, online, posts)
+main            → above main content
+sidebar         → right column (join card, etc.)
+half-1 / half-2 → 2-column grid
+trio-1/2/3      → 3-column grid
+footer-1/2/3    → footer columns
+footer-bar      → full-width footer strip
+```
+
+### 4 native widgets (Phase 1)
+
+| Widget | Description |
+|---|---|
+| **Hero Banner** | Animated hero with live/event/night variants resolved server-side |
+| **Stats Bar** | Live member count, online count, thread count with animated counters |
+| **Join Card** | CTA card for guests, hidden for logged-in members |
+| **Announcement Banner** | Closeable info/warning/error strip with icon |
+
+### Widget Store — install in one click
+
+Any developer can package a widget as a `.zip` and install it on any Nodyx instance:
+
+```
+my-widget-1.0.0.zip
+├── manifest.json     ← id, label, version, schema (config fields)
+└── widget.iife.js    ← Web Component — Shadow DOM isolated
+```
+
+The admin panel handles upload, validation, extraction and activation. No rebuild, no deploy.
+
+### Widget SDK — build your own, zero build tools
+
+Widgets are standard **Custom Elements** (Web Components). Plain JavaScript, no React, no Vue, no npm.
+
+```javascript
+class MyWidget extends HTMLElement {
+  connectedCallback() { this._render() }
+
+  _render() {
+    var cfg = JSON.parse(this.dataset.config || '{}')
+    if (!this.shadowRoot) this.attachShadow({ mode: 'open' })
+    this.shadowRoot.innerHTML = `<div>Hello ${cfg.title}</div>`
+  }
+}
+customElements.define('nodyx-widget-my-widget', MyWidget)
+```
+
+→ **[Full step-by-step guide for non-developers → nodyx.dev/create-widget](https://nodyx.dev/create-widget)**
 
 ---
 
@@ -224,15 +289,15 @@ Generates secrets, bootstraps the database, creates your admin account. **No man
 
 > Supported: Ubuntu 22.04 / 24.04, Debian 11 / 12 / 13.
 
-→ **[Complete installation guide (EN)](docs/en/INSTALL.md)**
+→ **[Complete installation guide (EN)](docs/en/INSTALL.md)**  
 → **[Guide d'installation complet (FR)](docs/fr/INSTALL.md)**
 
 ### Updating an existing instance
 
 ```bash
-cd /opt/nodyx && git pull && \
-  cd nodyx-core && npm run build && pm2 restart nodyx-core && \
-  cd ../nodyx-frontend && npm run build && pm2 restart nodyx-frontend
+cd /var/www/nexus && git pull && \
+  cd nodyx-core && npm run build && sudo -u nodyx pm2 restart nodyx-core && \
+  cd ../nodyx-frontend && npm run build && sudo -u nodyx pm2 restart nodyx-frontend
 ```
 
 Database migrations are applied automatically on startup — no manual SQL needed.
@@ -263,7 +328,7 @@ Database migrations are applied automatically on startup — no manual SQL neede
 | Layer | Technology |
 |---|---|
 | API | TypeScript + Fastify v5 |
-| Database | PostgreSQL 16 |
+| Database | PostgreSQL 16 · 71 migrations |
 | Cache / Sessions | Redis 7 |
 | Full-text search | PostgreSQL FTS (tsvector + GIN) |
 | Frontend | SvelteKit 5 + Tailwind v4 |
@@ -273,6 +338,8 @@ Database migrations are applied automatically on startup — no manual SQL neede
 | TURN relay | **nodyx-turn** — Rust, self-hosted, hardened |
 | P2P relay | **nodyx-relay** — Rust, tokio + hyper |
 | Collaborative canvas | **NodyxCanvas** — CRDT LWW, P2P DataChannels |
+| Homepage | **Homepage Builder** — 11 zones, drag & drop, visibility rules |
+| Widgets | **Widget Store** — .zip install + **Widget SDK** (Web Components) |
 
 ---
 
@@ -336,13 +403,13 @@ Database migrations are applied automatically on startup — no manual SQL neede
 | Olympus Hub security dashboard | v1.9.2 |
 | Process isolation — all processes under `nodyx` system user | v1.9.4 |
 | 181 Node.js tests + 18 Rust unit tests + CI pipeline | v1.9.4 |
-| **Living Profile** — Generative banner (Lissajous/FNV-1a), Reputation rings (SVG animated), Activity heatmap (53×7, streak, record) | v1.9.5 |
+| Living Profile — Generative banner (Lissajous/FNV-1a), Reputation rings (SVG animated), Activity heatmap | v1.9.5 |
 | Parallax hero, rotating avatar arcs, Timeline, `/reputation` transparent formulas | v1.9.5 |
 | Forum redesign — flat design, zero radius, full-width content | v1.9.5 |
 
 </details>
 
-<details open>
+<details>
 <summary><b>v2.0 — Private & Sovereign Communications 🔒</b></summary>
 
 | Feature | Version |
@@ -358,13 +425,32 @@ Database migrations are applied automatically on startup — no manual SQL neede
 
 </details>
 
+<details open>
+<summary><b>v2.1 — Homepage Builder + Widget SDK 🧩</b></summary>
+
+| Feature | Version |
+|---|---|
+| **Homepage Builder** — drag-and-drop admin, 11 layout zones (banner, hero, stats-bar, main, sidebar, half ×2, trio ×3, footer ×4) | v2.1 |
+| **Plugin registry** — each native widget is a self-contained file, zero core changes to add new ones | v2.1 |
+| **4 native widgets Phase 1** — Hero Banner (live/event/night variants), Stats Bar (animated counters), Join Card, Announcement Banner | v2.1 |
+| **Visibility rules** — per-widget audience (all / guests / members) + scheduled start/end dates | v2.1 |
+| **Widget Store** — install external widgets via `.zip` upload (XHR progress bar, 4-step validation, extraction whitelist) | v2.1 |
+| **Dynamic Widget Loader** — Web Components loaded at runtime, no rebuild, no deploy | v2.1 |
+| **Widget SDK** — plain JS Custom Elements (Shadow DOM), `manifest.json` schema → auto-generated config fields in builder | v2.1 |
+| **Demo widget: Video Player** — YouTube / Vimeo / MP4 with live preview, source viewer, one-click install | v2.1 |
+| **nodyx.dev/create-widget** — step-by-step guide for non-developers (7 steps, EN) | v2.1 |
+
+</details>
+
 ### Coming
 
 | Feature | Notes |
 |---|---|
-| **DM reactions** — emoji reactions on private messages | — |
+| **More native widgets** — Countdown, Leaderboard, Latest Threads, Featured Events, Jukebox Player | Phase 2 |
+| **Widget marketplace** — community-published widgets, ratings, one-click install from directory | — |
 | **Nodes** — durable structured knowledge, community-validated via Garden | [SPEC 013](docs/en/specs/013-node/SPEC.md) |
-| **Module system** — 26 activatable modules from admin panel (CMS-style) | [Spec](.claude/ideas/MODULE_SYSTEM.md) |
+| **Module system** — 26 activatable modules from admin panel (Joomla-style CMS) | [Spec](.claude/ideas/MODULE_SYSTEM.md) |
+| **DM reactions** — emoji reactions on private messages | — |
 | **Discord import** — bulk import channels, threads, reactions, avatars | — |
 | Mobile (Capacitor) / Desktop (Tauri) | — |
 | Rust migration — nodyx-server (Axum) replacing nodyx-core progressively | — |
@@ -377,7 +463,7 @@ Nodyx is not a Discord alternative.
 
 It is a different answer to a different question.
 
-Discord asked: *"How do we grow fast and capture communities?"*
+Discord asked: *"How do we grow fast and capture communities?"*  
 Nodyx asks: *"How do we give communities sovereignty over their own existence?"*
 
 Every Nodyx instance is a sovereign node. It runs where you run it — a VPS, a Pi, a spare laptop. It stores what you choose to store. It shares what you choose to share. It shuts down when you decide — not when a company pivots.
@@ -402,6 +488,7 @@ And it spreads the same way. Each instance that goes live exposes others to the 
 | <img src="https://flagcdn.com/16x12/de.png" alt="DE"> Deutsch | *coming soon* |
 
 - [**nodyx.dev**](https://nodyx.dev) — Full documentation wiki
+- [**Create a Widget**](https://nodyx.dev/create-widget) — Step-by-step Widget SDK guide
 - [Manifesto](docs/en/MANIFESTO.md) — Why Nodyx exists
 - [Architecture](docs/en/ARCHITECTURE.md) — How it's built
 - [Roadmap](docs/en/ROADMAP.md) — Where we're going
