@@ -44,6 +44,22 @@ Forum + Chat + Voice + P2P + Homepage Builder + Widget SDK — one server, one c
 
 Nodyx brings them together. One command. Your server. Forever.
 
+### Built on
+
+| Layer | Technology |
+|---|---|
+| Backend API | **TypeScript** + **Fastify v5** + Socket.IO — `nodyx-core/` |
+| Frontend | **SvelteKit 5** + Tailwind v4 + TipTap editor — `nodyx-frontend/` |
+| Database | **PostgreSQL 16** (FTS, migrations) + **Redis 7** (sessions, presence) |
+| Voice relay | **nodyx-turn** — Rust STUN/TURN (replaces coturn, 2.9 MB binary) |
+| P2P tunneling | **nodyx-relay** — Rust TCP tunnel (home server, no open ports) |
+| Real-time | WebRTC P2P mesh + Socket.IO fallback |
+| Auth (optional) | **Nodyx Signet** — ECDSA P-256 passwordless PWA — `nodyx-authenticator/` |
+| Process manager | **PM2** under a dedicated `nodyx` system user |
+| Reverse proxy | **Caddy** — automatic Let's Encrypt TLS |
+
+> **No Docker required.** The installer deploys Node.js + PostgreSQL + Redis + Caddy + PM2 natively. `docker-compose.yml` is provided for local development only.
+
 ---
 
 ## The internet broke something.
@@ -330,8 +346,8 @@ The installer offers **three network modes**:
 > **Nodyx Relay** is the recommended default — works on a Raspberry Pi behind a home router.
 > No domain. No port forwarding. No cloud account. Just run the script.
 
-Installs automatically: Node.js, PostgreSQL, Redis, nodyx-turn (Rust STUN/TURN), Caddy (HTTPS), PM2.
-Generates secrets, bootstraps the database, creates your admin account. **No manual configuration.**
+Installs automatically: **Node.js 20, PostgreSQL 16, Redis 7, Caddy (HTTPS), PM2, nodyx-turn** (Rust STUN/TURN).  
+Generates secrets, runs all DB migrations, creates your admin account. **No Docker. No manual configuration.**
 
 > Supported: Ubuntu 22.04 / 24.04, Debian 11 / 12 / 13.
 
@@ -351,6 +367,28 @@ Database migrations are applied automatically on startup — no manual SQL neede
 ---
 
 ## Architecture
+
+### Repository layout
+
+```
+nodyx/
+├── nodyx-core/          → Fastify v5 + TypeScript REST API, Socket.IO, DB migrations
+├── nodyx-frontend/      → SvelteKit 5 + Tailwind v4 SPA (SSR + client hydration)
+├── nodyx-p2p/           → Rust workspace: nodyx-relay (TCP tunnel) + nexus-turn (STUN/TURN)
+├── nodyx-authenticator/ → Nodyx Signet — ECDSA P-256 passwordless auth PWA (SvelteKit 5)
+├── nodyx-hub/           → Olympus Hub — internal admin dashboard (SvelteKit 5)
+├── nodyx-docs/          → nodyx.dev documentation site (SvelteKit 5)
+├── docs/                → Markdown docs (EN + FR) — served by nodyx-docs
+├── install.sh           → One-click installer (Node + PG + Redis + Caddy + PM2, no Docker)
+├── ecosystem.config.js  → PM2 process config (production)
+└── docker-compose.yml   → Local development only — not used in production installs
+```
+
+### Federation — how it works
+
+Each Nodyx instance runs a **Gossip Protocol** scheduler that periodically pings the central directory (`nodyx.org/api/directory`). Instances share their public metadata (name, slug, URL, member count) and are discoverable via the `/discover` page on any instance. Events (calendar) federate across instances through the same gossip mechanism. There is no dependency on ActivityPub — the protocol is intentionally minimal and self-contained.
+
+### Runtime diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -373,19 +411,20 @@ Database migrations are applied automatically on startup — no manual SQL neede
 
 | Layer | Technology |
 |---|---|
-| API | TypeScript + Fastify v5 |
-| Database | PostgreSQL 16 · 71 migrations |
-| Cache / Sessions | Redis 7 |
-| Full-text search | PostgreSQL FTS (tsvector + GIN) |
-| Frontend | SvelteKit 5 + Tailwind v4 |
+| API | TypeScript + Fastify v5 — `nodyx-core/` |
+| Database | PostgreSQL 16 · 53 migrations — automatic on startup |
+| Cache / Sessions | Redis 7 — JWT sessions, presence, rate-limiting |
+| Full-text search | PostgreSQL FTS (tsvector + GIN) — cross-instance via Gossip |
+| Frontend | SvelteKit 5 + Tailwind v4 — `nodyx-frontend/` |
 | Editor | TipTap (WYSIWYG) |
-| Real-time | Socket.IO |
-| Voice | WebRTC P2P mesh |
-| TURN relay | **nodyx-turn** — Rust, self-hosted, hardened |
-| P2P relay | **nodyx-relay** — Rust, tokio + hyper |
+| Real-time | Socket.IO (polling-first, WebSocket upgrade) |
+| Voice | WebRTC P2P mesh — no central audio relay |
+| TURN relay | **nodyx-turn** — Rust 2.9 MB, replaces coturn |
+| P2P relay | **nodyx-relay** — Rust TCP tunnel, runs on home servers |
 | Collaborative canvas | **NodyxCanvas** — CRDT LWW, P2P DataChannels |
 | Homepage | **Homepage Builder** — 11 zones, drag & drop, visibility rules |
 | Widgets | **Widget Store** — .zip install + **Widget SDK** (Web Components) |
+| Passwordless auth | **Nodyx Signet** — ECDSA P-256 PWA — `nodyx-authenticator/` |
 
 ---
 
