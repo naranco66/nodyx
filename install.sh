@@ -74,7 +74,7 @@ banner() {
 EOF
   echo -e "${RESET}"
   echo -e "  ${CYAN}$(printf '═%.0s' {1..52})${RESET}"
-  echo -e "  ${CYAN}║${RESET}  ${BOLD}Installer v2.0${RESET}  ·  Forum · Chat · Voice · Builder  ${CYAN}║${RESET}"
+  echo -e "  ${CYAN}║${RESET}  ${BOLD}Installer v2.1${RESET}  ·  Forum · Chat · Voice · Builder  ${CYAN}║${RESET}"
   echo -e "  ${CYAN}║${RESET}  AGPL-3.0  ·  ${CYAN}github.com/Pokled/Nodyx${RESET}            ${CYAN}║${RESET}"
   echo -e "  ${CYAN}$(printf '═%.0s' {1..52})${RESET}"
   echo ""
@@ -243,8 +243,8 @@ _auto_backup_db() {
 }
 
 # ── Version ────────────────────────────────────────────────────────────────────
-NODYX_VERSION="2.0.0"
-INSTALLER_VERSION="2.0.0"
+NODYX_VERSION="2.1.0"
+INSTALLER_VERSION="2.1.0"
 
 # ── CLI flags ─────────────────────────────────────────────────────────────────
 _FORCE_MODE=""        # upgrade | repair | reinstall | wipe (bypass detection menu)
