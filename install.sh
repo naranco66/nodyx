@@ -1872,6 +1872,7 @@ cat >> "$UPDATE_SCRIPT" <<'UPDATESCRIPT3'
 echo -e "\n${BOLD}━━━  Mise à jour Nodyx  ━━━${RESET}\n"
 
 info "Récupération des dernières modifications..."
+git config --global --add safe.directory "$NODYX_DIR" 2>/dev/null || true
 git -C "$NODYX_DIR" checkout -- nodyx-core/package-lock.json nodyx-frontend/package-lock.json 2>/dev/null || true
 git -C "$NODYX_DIR" pull --ff-only || die "git pull échoué. Vérifie ta connexion ou résous les conflits."
 
