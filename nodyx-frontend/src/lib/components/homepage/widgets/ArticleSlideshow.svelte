@@ -51,7 +51,7 @@
 	let { config }: Props = $props()
 
 	// ── Config parsing ───────────────────────────────────────────────────────
-	const sources   = $derived((config.sources as Source[] | undefined) ?? [{ type: 'articles', limit: 5 }])
+	const sources   = $derived((config.sources as Source[] | undefined) ?? ([{ type: 'articles', limit: 5 }] as Source[]))
 	const slideMs   = $derived((config.slide_ms  as number | undefined)  ?? 6000)
 	const height    = $derived((config.height    as string | undefined)  ?? '420px')
 	const showExcerpt = $derived((config.show_excerpt as boolean | undefined) ?? true)
