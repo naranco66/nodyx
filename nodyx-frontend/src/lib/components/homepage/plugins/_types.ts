@@ -22,13 +22,15 @@ export interface FieldSchema {
 }
 
 export interface WidgetPlugin {
-	id:        string
-	label:     string
-	icon:      string
-	desc:      string
-	family:    WidgetFamily
-	phase:     WidgetPhase
+	id:           string
+	label:        string
+	icon:         string
+	desc:         string
+	family:       WidgetFamily
+	phase:        WidgetPhase
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	component: Component<any, any, any>
-	schema:    FieldSchema[]
+	component:    Component<any, any, any>
+	schema:       FieldSchema[]
+	/** Si true, le builder affiche un panel de config custom au lieu du formulaire auto-généré */
+	customPanel?: boolean
 }

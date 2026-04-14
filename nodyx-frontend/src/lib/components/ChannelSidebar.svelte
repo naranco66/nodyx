@@ -117,7 +117,12 @@
 	<nav class="flex-1 overflow-y-auto py-2 px-2 custom-scrollbar">
 		<!-- Canaux texte -->
 		{#if textChannels.length > 0}
-			<p class="px-2 pt-2 pb-1 text-[10px] uppercase tracking-widest text-gray-600 font-semibold">Texte</p>
+			<div class="ch-section-header">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M7.875 14.25l1.214 1.942a2.25 2.25 0 001.908 1.058h2.006c.776 0 1.497-.4 1.908-1.058l1.214-1.942M2.41 9h4.636a2.25 2.25 0 011.872 1.002l.164.246a2.25 2.25 0 001.872 1.002h2.092a2.25 2.25 0 001.872-1.002l.164-.246A2.25 2.25 0 0116.954 9h4.636M2.41 9a2.25 2.25 0 00-.16.832V12a2.25 2.25 0 002.25 2.25h15a2.25 2.25 0 002.25-2.25V9.832c0-.287-.055-.57-.16-.832M2.41 9a2.25 2.25 0 01.382-.632l3.285-3.832a2.25 2.25 0 011.708-.786h8.43c.657 0 1.281.287 1.709.786l3.284 3.832c.163.19.291.404.382.632"/>
+				</svg>
+				<span>Texte</span>
+			</div>
 			<div class="space-y-0.5 mb-3">
 				{#each textChannels as ch (ch.id)}
 					{@const unread = ($unreadCountsStore[ch.id] ?? 0)}
@@ -130,7 +135,7 @@
 						ondragstart={isAdmin ? (e) => onDragStart(e, ch) : undefined}
 						ondragover={isAdmin ? onDragOver : undefined}
 						ondrop={isAdmin ? (e) => onDrop(e, ch) : undefined}
-						class="ch-item w-full text-left flex items-center gap-1.5 px-2.5 py-1.5 rounded text-sm
+						class="ch-item w-full text-left flex items-center gap-2 px-2.5 py-1.5 rounded text-sm
 						       {isAdmin ? 'cursor-grab active:cursor-grabbing' : ''}
 						       {isActive ? 'ch-active' : hasUnread ? 'ch-unread' : 'ch-idle'}
 						       {isFlashing ? 'ch-flash' : ''}"
@@ -147,7 +152,12 @@
 
 		<!-- Canaux vocaux -->
 		{#if voiceChannels.length > 0}
-			<p class="px-2 pt-1 pb-1 text-[10px] uppercase tracking-widest text-gray-600 font-semibold">Vocal</p>
+			<div class="ch-section-header ch-section-header--voice">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/>
+				</svg>
+				<span>Vocal</span>
+			</div>
 			<div class="space-y-0.5">
 				{#each voiceChannels as ch (ch.id)}
 					{@const inThisChannel = voiceState.channelId === ch.id}
@@ -157,15 +167,31 @@
 						ondragstart={isAdmin ? (e) => onDragStart(e, ch) : undefined}
 						ondragover={isAdmin ? onDragOver : undefined}
 						ondrop={isAdmin ? (e) => onDrop(e, ch) : undefined}
-						class="w-full text-left flex items-center gap-1.5 px-2.5 py-1.5 rounded text-sm transition-colors
+						class="ch-voice-item w-full text-left flex items-center gap-2 px-2.5 py-1.5 rounded text-sm
 						       {isAdmin ? 'cursor-grab active:cursor-grabbing' : ''}
-						       {inThisChannel ? 'bg-green-900/40 text-green-300 border border-green-800/40' : 'text-gray-400 hover:text-white hover:bg-gray-800/60'}"
+						       {inThisChannel ? 'ch-voice-active' : 'ch-voice-idle'}"
 						title={inThisChannel ? 'Quitter le salon vocal' : 'Rejoindre le salon vocal'}
 					>
-						<span class="text-base leading-none">{inThisChannel ? '🔴' : '🔊'}</span>
+						<!-- Icône dynamique : onde sonore idle / micro actif -->
+						{#if inThisChannel}
+							<span class="ch-voice-icon ch-voice-icon--live" aria-hidden="true">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/>
+								</svg>
+							</span>
+						{:else}
+							<span class="ch-voice-icon" aria-hidden="true">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z"/>
+								</svg>
+							</span>
+						{/if}
 						<span class="truncate flex-1">{ch.name}</span>
 						{#if inThisChannel}
-							<span class="text-[10px] text-green-400 shrink-0">En ligne</span>
+							<span class="ch-voice-live-pill" aria-label="Vous êtes dans ce salon">
+								<span class="ch-voice-live-dot"></span>
+								Live
+							</span>
 						{/if}
 					</button>
 
@@ -311,10 +337,76 @@
 		to   { transform: translateX(110%); }
 	}
 
+	/* ── Section headers ───────────────────────────────────────────────────── */
+	.ch-section-header {
+		display: flex; align-items: center; gap: 5px;
+		padding: 8px 10px 4px;
+		font-size: 10px; font-weight: 700;
+		text-transform: uppercase; letter-spacing: .14em;
+		color: #4b5563;
+	}
+	.ch-section-header svg { width: 11px; height: 11px; flex-shrink: 0; }
+	.ch-section-header--voice { color: #374151; }
+	.ch-section-header--voice svg { stroke: #166534; }
+
 	/* ── Hash symbol ───────────────────────────────────────────────────────── */
 	.ch-hash { color: #374151; transition: color .15s; }
 	.ch-hash-unread { color: #7c3aed; }
 	.ch-idle:hover .ch-hash { color: #4b5563; }
+
+	/* ── Voice channel items ───────────────────────────────────────────────── */
+	.ch-voice-item {
+		position: relative; overflow: hidden;
+		transition: color .15s, background .15s;
+	}
+	.ch-voice-idle {
+		color: #4b5563;
+	}
+	.ch-voice-idle:hover {
+		color: #d1fae5;
+		background: rgba(16,185,129,.06);
+	}
+	.ch-voice-active {
+		color: #86efac;
+		background: rgba(16,185,129,.1);
+		box-shadow: inset 2px 0 0 #16a34a;
+	}
+
+	/* Voice icon */
+	.ch-voice-icon {
+		width: 14px; height: 14px; flex-shrink: 0;
+		display: flex; align-items: center; justify-content: center;
+		color: #374151; transition: color .15s;
+	}
+	.ch-voice-icon svg { width: 14px; height: 14px; }
+	.ch-voice-idle:hover .ch-voice-icon { color: #4ade80; }
+	.ch-voice-icon--live { color: #4ade80; animation: micpulse 2.5s ease-in-out infinite; }
+	@keyframes micpulse {
+		0%,100% { filter: drop-shadow(0 0 0 rgba(74,222,128,0)); }
+		50%      { filter: drop-shadow(0 0 4px rgba(74,222,128,.7)); }
+	}
+
+	/* Live pill */
+	.ch-voice-live-pill {
+		display: flex; align-items: center; gap: 4px;
+		padding: 1px 6px;
+		font-size: 9px; font-weight: 800;
+		text-transform: uppercase; letter-spacing: .1em;
+		color: #4ade80;
+		background: rgba(16,185,129,.12);
+		border: 1px solid rgba(16,185,129,.25);
+		border-radius: 99px;
+		flex-shrink: 0;
+	}
+	.ch-voice-live-dot {
+		width: 5px; height: 5px; border-radius: 50%;
+		background: #4ade80;
+		animation: dotpulse2 1.8s ease-out infinite;
+	}
+	@keyframes dotpulse2 {
+		0%   { box-shadow: 0 0 0 0 rgba(74,222,128,.6); }
+		100% { box-shadow: 0 0 0 5px rgba(74,222,128,0); }
+	}
 
 	/* ── Unread badge ──────────────────────────────────────────────────────── */
 	.ch-badge {

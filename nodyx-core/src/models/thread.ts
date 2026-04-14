@@ -165,7 +165,30 @@ export async function incrementViews(id: string): Promise<void> {
   )
 }
 
-export async function getFeatured(limit = 3): Promise<FeaturedThread[]> {
+export async function getFeatured(limit = 5, categoryId?: string): Promise<FeaturedThread[]> {
+  if (categoryId) {
+    // Par catégorie : threads récents (pas forcément featured)
+    const { rows } = await db.query<FeaturedThread>(
+      `SELECT
+         t.id,
+         t.title,
+         t.category_id,
+         c.name        AS category_name,
+         u.username    AS author_username,
+         u.avatar      AS author_avatar,
+         t.created_at,
+         (SELECT COUNT(*)::int FROM posts p WHERE p.thread_id = t.id) AS post_count,
+         (SELECT p2.content FROM posts p2 WHERE p2.thread_id = t.id ORDER BY p2.created_at ASC LIMIT 1) AS first_post_content
+       FROM threads t
+       JOIN categories c ON c.id = t.category_id
+       JOIN users u      ON u.id = t.author_id
+       WHERE (c.id::text = $2 OR c.slug = $2)
+       ORDER BY t.created_at DESC
+       LIMIT $1`,
+      [limit, categoryId]
+    )
+    return rows
+  }
   const { rows } = await db.query<FeaturedThread>(
     `SELECT
        t.id,

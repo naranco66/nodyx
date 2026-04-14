@@ -236,9 +236,14 @@ export default async function instanceRoutes(app: FastifyInstance) {
   })
 
   // GET /api/v1/instance/threads/featured
-  // Returns up to 3 featured threads with excerpt and thumbnail
-  app.get('/threads/featured', { preHandler: [rateLimit] }, async (_request, reply) => {
-    const rows = await ThreadModel.getFeatured(3)
+  // Returns featured threads (or recent threads from a category) with excerpt and thumbnail
+  // Query params: ?limit=1-10 (default 5), ?category_id=slug-or-uuid (optional)
+  app.get('/threads/featured', { preHandler: [rateLimit] }, async (request, reply) => {
+    const q = request.query as Record<string, string>
+    const limit = Math.min(10, Math.max(1, parseInt(q.limit ?? '5') || 5))
+    const categoryId = q.category_id?.trim() || undefined
+
+    const rows = await ThreadModel.getFeatured(limit, categoryId)
 
     const articles = rows.map(t => ({
       id:             t.id,
@@ -369,6 +374,31 @@ export default async function instanceRoutes(app: FastifyInstance) {
         ...p,
         widgets: widgetsByPosition[p.id] ?? []
       }))
+    }
+
+    await redis.setex(CACHE_KEY, 60, JSON.stringify(data))
+    return reply.header('X-Cache', 'MISS').send(data)
+  })
+
+  // ── GET /api/v1/instance/homepage/grid ────────────────────────────────────
+  // Retourne le layout Grid Builder v2 publié + thème. Cache Redis 60s.
+  // Public — no auth required.
+  app.get('/homepage/grid', { preHandler: [rateLimit] }, async (_request, reply) => {
+    const CACHE_KEY = 'homepage:grid:cache'
+
+    const cached = await redis.get(CACHE_KEY)
+    if (cached) {
+      return reply.header('X-Cache', 'HIT').send(JSON.parse(cached))
+    }
+
+    const { rows } = await db.query<{
+      published_layout: unknown; theme: unknown
+    }>('SELECT published_layout, theme FROM homepage_grid LIMIT 1')
+
+    const row = rows[0] ?? {}
+    const data = {
+      layout: row.published_layout ?? null,
+      theme:  row.theme ?? {}
     }
 
     await redis.setex(CACHE_KEY, 60, JSON.stringify(data))

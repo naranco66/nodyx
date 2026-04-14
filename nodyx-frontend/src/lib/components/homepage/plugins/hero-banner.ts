@@ -53,6 +53,32 @@ const plugin: WidgetPlugin = {
 			placeholder: 'https://...',
 			hint: 'Image alternative affichée la nuit (optionnel).',
 		},
+		// ── Docks ──────────────────────────────────────────────────────────────
+		{
+			key: 'show_stats', type: 'boolean',
+			label: 'Afficher les stats (membres · en ligne · sujets)',
+			default: true,
+		},
+		{
+			key: 'show_live', type: 'boolean',
+			label: 'Afficher les membres en ligne',
+			default: true,
+		},
+		{
+			key: 'live_max', type: 'number',
+			label: 'Avatars visibles (max)',
+			default: 8, min: 3, max: 16,
+		},
+		{
+			key: 'guest_mode', type: 'select',
+			label: 'Mode visiteur (membres en ligne)',
+			default: 'blur',
+			options: [
+				{ value: 'blur',  label: 'Avatars floutés + invitation à rejoindre' },
+				{ value: 'count', label: 'Compteur seulement' },
+				{ value: 'full',  label: 'Visible par tous (même les visiteurs)' },
+			],
+		},
 	],
 }
 

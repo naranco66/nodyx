@@ -1,0 +1,34 @@
+{
+  "id": "video-player",
+  "label": "Lecteur Vidéo",
+  "version": "1.0.0",
+  "author": "Nodyx",
+  "icon": "🎬",
+  "family": "media",
+  "description": "Lecteur vidéo universel — YouTube, Vimeo ou MP4 direct. Configurable depuis le builder.",
+  "entry": "widget.iife.js",
+  "schema": [
+    {
+      "key": "url",
+      "type": "text",
+      "label": "URL de la vidéo",
+      "placeholder": "https://youtube.com/watch?v=..."
+    },
+    {
+      "key": "title",
+      "type": "text",
+      "label": "Titre affiché",
+      "placeholder": "Ma vidéo"
+    },
+    {
+      "key": "autoplay",
+      "type": "checkbox",
+      "label": "Lecture automatique"
+    },
+    {
+      "key": "show_controls",
+      "type": "checkbox",
+      "label": "Afficher les contrôles"
+    }
+  ]
+}

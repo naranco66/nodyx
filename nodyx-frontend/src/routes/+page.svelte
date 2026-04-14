@@ -3,7 +3,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { t } from '$lib/i18n';
 	import WidgetZone from '$lib/components/homepage/WidgetZone.svelte';
-	import type { HomepagePosition } from '$lib/types/homepage';
+	import GridRenderer from '$lib/components/homepage/GridRenderer.svelte';
+	import type { HomepagePosition, GridLayout, GridTheme } from '$lib/types/homepage';
 	const tFn = $derived($t)
 
 	let { data }: { data: PageData } = $props();
@@ -16,6 +17,9 @@
 	const hpPositions      = $derived((data as any).homepagePositions as HomepagePosition[] ?? []);
 	const user             = $derived((data as any).user ?? null);
 	const installedWidgets = $derived((data as any).installedWidgets as Record<string, { entry: string }> ?? {});
+	const gridLayout       = $derived((data as any).gridLayout as GridLayout | null ?? null);
+	const gridTheme        = $derived((data as any).gridTheme as Partial<GridTheme> ?? {});
+	const hasGrid          = $derived(gridLayout !== null && (gridLayout as GridLayout)?.rows?.length > 0);
 
 	// Helper: get widgets for a position from homepage builder data
 	function posWidgets(posId: string) {
@@ -211,8 +215,23 @@
 <div class="dotbg min-h-full hp-root">
 
 <!-- ═══════════════════════════════════════════════════════════════════
-     BANNER — position 'banner' (WidgetZone)
+     GRID BUILDER v2 — remplace tout le contenu si un layout est publié
 ════════════════════════════════════════════════════════════════════════ -->
+{#if hasGrid}
+	<GridRenderer
+		layout={gridLayout!}
+		theme={gridTheme}
+		{instance}
+		{user}
+		{installedWidgets}
+	/>
+{:else}
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     FALLBACK — ancien système positions fixes (tant que pas de grid)
+══════════════════════════════════════════════════════════════���═════════ -->
+
+<!-- BANNER -->
 {#if hasPos('banner')}
 	<WidgetZone widgets={posWidgets('banner')} {instance} {user} layout="full" {installedWidgets} />
 {/if}
@@ -890,4 +909,6 @@
 {/if}
 
 <div class="h-8 lg:hidden"></div>
+
+{/if}<!-- end {#if hasGrid} fallback -->
 </div>

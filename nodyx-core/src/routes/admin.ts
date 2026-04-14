@@ -1240,4 +1240,54 @@ export default async function adminRoutes(app: FastifyInstance) {
     await redis.del('homepage:cache')
     return reply.send({ success: true })
   })
+
+  // ── Homepage Grid Builder v2 ───────────────────────────────────────────────
+
+  // GET /api/v1/admin/homepage/grid — draft + published + theme
+  app.get('/homepage/grid', { preHandler: [rateLimit, adminOnly] }, async (_req, reply) => {
+    const { rows } = await db.query<{
+      draft_layout: unknown; published_layout: unknown; theme: unknown; updated_at: string
+    }>('SELECT draft_layout, published_layout, theme, updated_at FROM homepage_grid LIMIT 1')
+    const row = rows[0] ?? {}
+    return reply.send({
+      draft:     row.draft_layout     ?? null,
+      published: row.published_layout ?? null,
+      theme:     row.theme            ?? {},
+      updated_at: row.updated_at      ?? null,
+    })
+  })
+
+  // PUT /api/v1/admin/homepage/grid/draft — sauvegarde le brouillon
+  app.put('/homepage/grid/draft', { preHandler: [rateLimit, adminOnly] }, async (request, reply) => {
+    const body = request.body as { layout?: unknown; theme?: unknown }
+    const sets: string[] = []
+    const vals: unknown[] = []
+    let i = 1
+    if (body.layout !== undefined) { sets.push(`draft_layout = $${i++}`); vals.push(JSON.stringify(body.layout)) }
+    if (body.theme  !== undefined) { sets.push(`theme = $${i++}`);         vals.push(JSON.stringify(body.theme)) }
+    if (!sets.length) return reply.code(400).send({ error: 'Nothing to update' })
+    sets.push('updated_at = now()')
+    await db.query(
+      `UPDATE homepage_grid SET ${sets.join(', ')} WHERE id = 1`,
+      vals
+    )
+    return reply.send({ success: true })
+  })
+
+  // POST /api/v1/admin/homepage/grid/publish — publie le brouillon
+  app.post('/homepage/grid/publish', { preHandler: [rateLimit, adminOnly] }, async (_req, reply) => {
+    await db.query(
+      `UPDATE homepage_grid SET published_layout = draft_layout, updated_at = now() WHERE id = 1`
+    )
+    await redis.del('homepage:grid:cache')
+    return reply.send({ success: true })
+  })
+
+  // POST /api/v1/admin/homepage/grid/revert — annule le brouillon → revient au publié
+  app.post('/homepage/grid/revert', { preHandler: [rateLimit, adminOnly] }, async (_req, reply) => {
+    await db.query(
+      `UPDATE homepage_grid SET draft_layout = published_layout, updated_at = now() WHERE id = 1`
+    )
+    return reply.send({ success: true })
+  })
 }

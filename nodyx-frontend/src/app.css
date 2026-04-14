@@ -34,6 +34,21 @@ html, body {
   * { scrollbar-width: thin; scrollbar-color: rgb(75 85 99 / 0.45) transparent; }
 }
 
+/* ── Selects & inputs — thème sombre global ──────────────────────────────── */
+/* color-scheme: dark force le browser à rendre la liste déroulante native
+   en sombre (fond noir, texte blanc) — sans ça le popup options reste blanc
+   même avec un background CSS sur l'élément.                                */
+select {
+  color-scheme: dark;
+  background-color: #1e2030;
+  color: #e2e8f0;
+  border-color: rgba(255,255,255,.15);
+}
+select option {
+  background-color: #1e2030;
+  color: #e2e8f0;
+}
+
 /* ── Bottom nav height (source unique de vérité) ─────────────────────────── */
 :root { --bottom-nav-h: 56px; }
 @media (min-width: 1024px) { :root { --bottom-nav-h: 0px; } }

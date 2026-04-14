@@ -30,8 +30,9 @@
 		{
 			section: 'Contenu',
 			items: [
-				{ href: '/admin/homepage', label: 'Homepage',  icon: '🏠' },
-				{ href: '/admin/widgets',  label: 'Widgets',   icon: '🧩' },
+				{ href: '/admin/homepage',         label: 'Homepage',     icon: '🏠' },
+				{ href: '/admin/homepage/builder', label: 'Grid Builder', icon: '⬛' },
+				{ href: '/admin/widgets',          label: 'Widgets',      icon: '🧩' },
 				{ href: '/admin/assets',   label: 'Assets',    icon: '🖼️' },
 				{ href: '/admin/garden',   label: 'Jardin',    icon: '🌱' },
 			],

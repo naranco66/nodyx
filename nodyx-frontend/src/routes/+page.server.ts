@@ -4,7 +4,7 @@ import { apiFetch } from '$lib/api';
 export const load: PageServerLoad = async ({ fetch, parent }) => {
 	const { modules } = await parent()
 
-	const [infoRes, catRes, threadsRes, featuredRes, eventsRes, homepageRes, widgetStoreRes] = await Promise.all([
+	const [infoRes, catRes, threadsRes, featuredRes, eventsRes, homepageRes, widgetStoreRes, gridRes] = await Promise.all([
 		apiFetch(fetch, '/instance/info'),
 		apiFetch(fetch, '/instance/categories'),
 		apiFetch(fetch, '/instance/threads/recent'),
@@ -12,10 +12,11 @@ export const load: PageServerLoad = async ({ fetch, parent }) => {
 		modules['events-public'] ? apiFetch(fetch, '/instance/events-public?limit=4') : Promise.resolve(null),
 		apiFetch(fetch, '/instance/homepage'),
 		apiFetch(fetch, '/widget-store-public'),
+		apiFetch(fetch, '/instance/homepage/grid'),
 	]);
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const [infoJson, catJson, threadsJson, featuredJson, eventsJson, homepageJson, widgetStoreJson]: any[] = await Promise.all([
+	const [infoJson, catJson, threadsJson, featuredJson, eventsJson, homepageJson, widgetStoreJson, gridJson]: any[] = await Promise.all([
 		infoRes.ok          ? infoRes.json()          : {},
 		catRes.ok           ? catRes.json()           : {},
 		threadsRes.ok       ? threadsRes.json()       : {},
@@ -23,6 +24,7 @@ export const load: PageServerLoad = async ({ fetch, parent }) => {
 		eventsRes?.ok       ? eventsRes.json()        : {},
 		homepageRes.ok      ? homepageRes.json()      : { positions: [] },
 		widgetStoreRes?.ok  ? widgetStoreRes.json()   : { widgets: [] },
+		gridRes?.ok         ? gridRes.json()          : { layout: null, theme: {} },
 	]);
 
 	// Resolve hero-banner dynamic variant server-side (live > event > night > default)
@@ -94,5 +96,9 @@ export const load: PageServerLoad = async ({ fetch, parent }) => {
 		installedWidgets: Object.fromEntries(
 			(widgetStoreJson.widgets ?? []).map((w: any) => [w.id, w.manifest])
 		),
+		// Grid Builder v2 — layout publié + thème
+		// Si layout est non-null → GridRenderer prend le relais sur la homepage
+		gridLayout: gridJson.layout ?? null,
+		gridTheme:  gridJson.theme  ?? {},
 	};
 };

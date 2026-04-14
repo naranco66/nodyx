@@ -821,7 +821,14 @@
 					<p class="px-2 mb-1.5 text-[9px] uppercase tracking-[.2em] font-black"
 					   style="color: #374151">{tFn('nav.section.communications')}</p>
 					<div class="space-y-px">
-						{#if mods.chat !== false}
+						{#if mods.chat !== false && layoutTextChannels.length > 0}
+						<!-- Sous-label Texte -->
+						<div class="lch-sublabel">
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M7.875 14.25l1.214 1.942a2.25 2.25 0 001.908 1.058h2.006c.776 0 1.497-.4 1.908-1.058l1.214-1.942M2.41 9h4.636a2.25 2.25 0 011.872 1.002l.164.246a2.25 2.25 0 001.872 1.002h2.092a2.25 2.25 0 001.872-1.002l.164-.246A2.25 2.25 0 0116.954 9h4.636M2.41 9a2.25 2.25 0 00-.16.832V12a2.25 2.25 0 002.25 2.25h15a2.25 2.25 0 002.25-2.25V9.832c0-.287-.055-.57-.16-.832M2.41 9a2.25 2.25 0 01.382-.632l3.285-3.832a2.25 2.25 0 011.708-.786h8.43c.657 0 1.281.287 1.709.786l3.284 3.832c.163.19.291.404.382.632"/>
+							</svg>
+							<span>Texte</span>
+						</div>
 					{#each layoutTextChannels as ch}
 						{@const chActive = activeChatChannelId === ch.id}
 						{@const chUnread = ($unreadCountsStore[ch.id] ?? 0)}
@@ -843,7 +850,14 @@
 						</a>
 						{/each}
 					{/if}
-					{#if mods.voice !== false}
+					{#if mods.voice !== false && layoutVoiceChannels.length > 0}
+						<!-- Sous-label Vocal -->
+						<div class="lch-sublabel lch-sublabel--voice">
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/>
+							</svg>
+							<span>Vocal</span>
+						</div>
 						{#each layoutVoiceChannels as ch}
 						{@const chActive = activeChatChannelId === ch.id}
 						{@const inThis   = voiceState.active && voiceState.channelId === ch.id}
@@ -859,8 +873,8 @@
 							{#if chActive}
 								<span class="absolute left-0 top-1 bottom-1 w-0.5" style="background: linear-gradient(to bottom, #7c3aed, #06b6d4)"></span>
 							{/if}
-							<svg class="w-4 h-4 shrink-0" fill="none" stroke="{inThis ? '#a78bfa' : chActive ? '#a78bfa' : '#374151'}" stroke-width="2" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072M12 6a7 7 0 010 12M8.464 8.464a5 5 0 000 7.072"/>
+							<svg class="lch-voice-ico" fill="none" stroke="{inThis ? '#4ade80' : chActive ? '#a78bfa' : '#374151'}" stroke-width="2" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/>
 							</svg>
 							<span class="text-xs truncate flex-1">{ch.name}</span>
 							{#if members.length > 0}
@@ -1713,6 +1727,20 @@
 	0%, 100% { transform: scaleY(0.25); opacity: 0.55 }
 	50%       { transform: scaleY(1);    opacity: 1    }
 }
+
+/* ── Layout channel sub-labels (Texte / Vocal) ───────────────────────────── */
+.lch-sublabel {
+	display: flex; align-items: center; gap: 5px;
+	padding: 8px 10px 3px;
+	font-size: 9px; font-weight: 800;
+	text-transform: uppercase; letter-spacing: .16em;
+	color: #374151;
+}
+.lch-sublabel svg { width: 10px; height: 10px; flex-shrink: 0; }
+.lch-sublabel--voice { color: #14532d; margin-top: 4px; }
+.lch-sublabel--voice svg { stroke: #166834; }
+
+.lch-voice-ico { width: 14px; height: 14px; flex-shrink: 0; transition: stroke .15s; }
 
 /* ── Layout channel items — unread glow ──────────────────────────────────── */
 .lch-item {
