@@ -645,6 +645,18 @@
 		if (e.code === 'Space') spaceDown = false
 	}
 
+	// ── Portal action — monte le nœud directement sur <body> ─────────────────
+	// Nécessaire car position:fixed est cassé si un ancêtre a un transform/filter.
+	function portal(node: HTMLElement) {
+		if (!browser) return
+		document.body.appendChild(node)
+		return {
+			destroy() {
+				if (document.body.contains(node)) document.body.removeChild(node)
+			}
+		}
+	}
+
 	// ── Lifecycle ─────────────────────────────────────────────────────────────
 
 	let cursorCleanup: ReturnType<typeof setInterval>
@@ -729,6 +741,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
+	use:portal
 	role="dialog"
 	aria-label="Canvas collaboratif"
 	tabindex="-1"
