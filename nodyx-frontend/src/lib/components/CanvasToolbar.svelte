@@ -18,11 +18,14 @@
     } = $props()
 
     const TOOLS: { id: CanvasTool; label: string; icon: string }[] = [
+        { id: 'select', label: 'Sélection',  icon: '↖' },
         { id: 'pen',    label: 'Stylo',      icon: '✏️' },
+        { id: 'text',   label: 'Texte',      icon: 'T' },
         { id: 'sticky', label: 'Post-it',    icon: '📝' },
         { id: 'rect',   label: 'Rectangle',  icon: '⬜' },
         { id: 'circle', label: 'Cercle',     icon: '⭕' },
-        { id: 'eraser', label: 'Effaceur',   icon: '🗑️' },
+        { id: 'arrow',  label: 'Flèche',     icon: '→' },
+        { id: 'eraser', label: 'Effaceur',   icon: '◻' },
     ]
 
     const PRESET_COLORS = [
@@ -59,8 +62,8 @@
     <!-- Séparateur -->
     <div class="w-full h-px bg-gray-700/60 my-1"></div>
 
-    <!-- Épaisseur (seulement pour pen) -->
-    {#if tool === 'pen'}
+    <!-- Épaisseur (pour pen, arrow, eraser) -->
+    {#if tool === 'pen' || tool === 'arrow' || tool === 'eraser'}
         <div class="flex flex-col gap-1 items-center">
             {#each [2, 4, 8] as w}
                 <button

@@ -47,8 +47,42 @@
 			: null
 	);
 
-	let showJukebox = $state(false);
-	let showCanvas  = $state(false);
+	let showJukebox    = $state(false);
+	let showCanvas     = $state(false);
+	let canvasBoardId  = $state<string | null>(null);
+	let canvasLoading  = $state(false);
+
+	async function openCanvas() {
+		if (canvasBoardId) { showCanvas = true; return }
+		const channelId = voiceState.channelId || selectedChannel.id
+		if (!channelId) return
+		canvasLoading = true
+		try {
+			// Try to load existing board for this channel
+			const res = await fetch(`/api/v1/canvas/channel/${channelId}`, {
+				headers: { Authorization: `Bearer ${token}` },
+			})
+			if (res.ok) {
+				const boards = await res.json() as { id: string }[]
+				if (boards.length > 0) {
+					canvasBoardId = boards[0].id
+				} else {
+					// Create new board
+					const r2 = await fetch('/api/v1/canvas', {
+						method: 'POST',
+						headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+						body: JSON.stringify({ channelId, name: selectedChannel.name ?? 'Canvas' }),
+					})
+					if (r2.ok) {
+						const board = await r2.json() as { id: string }
+						canvasBoardId = board.id
+					}
+				}
+			}
+		} catch { /* ignore, canvas stays closed */ }
+		canvasLoading = false
+		if (canvasBoardId) showCanvas = true
+	}
 
 	const connected = $derived(voiceState.active && voiceState.channelId === selectedChannel.id);
 	const peerCount = $derived(connected ? voiceState.peers.length + 1 : 0);
@@ -130,15 +164,20 @@
 
 	<!-- Canvas collaboratif -->
 	<button
-		onclick={() => showCanvas = !showCanvas}
+		onclick={() => showCanvas ? showCanvas = false : openCanvas()}
+		disabled={canvasLoading}
 		class="toolbar-btn {showCanvas ? 'active-violet' : ''}"
-		title="Tableau collaboratif P2P"
+		title="Tableau collaboratif"
 	>
 		{#if showCanvas}
 			<span class="relative flex w-1.5 h-1.5 shrink-0">
 				<span class="absolute inline-flex h-full w-full rounded-full bg-violet-400/60 animate-ping"></span>
 				<span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-violet-400"></span>
 			</span>
+		{:else if canvasLoading}
+			<svg class="w-3.5 h-3.5 shrink-0 animate-spin" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" d="M12 3v3m0 12v3m9-9h-3M6 12H3m15.364-6.364l-2.121 2.121M8.757 15.243l-2.121 2.121m0-12.728l2.121 2.121M15.243 15.243l2.121 2.121"/>
+			</svg>
 		{:else}
 			<svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
 				<path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42"/>
@@ -280,10 +319,10 @@
 </div>
 
 <!-- ── NodyxCanvas overlay ─────────────────────────────────────────────────── -->
-{#if showCanvas}
+{#if showCanvas && canvasBoardId}
 	<NodyxCanvas
+		boardId={canvasBoardId}
 		channelId={canvasRecapChannelId}
-		voiceChannelId={voiceState.channelId}
 		socket={socket}
 		{userId}
 		username={myUsername}
