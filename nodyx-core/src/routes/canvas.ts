@@ -1,0 +1,245 @@
+import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
+import { requireAuth } from '../middleware/auth'
+import { adminOnly }   from '../middleware/adminOnly'
+import { rateLimit }   from '../middleware/rateLimit'
+import { validate }    from '../middleware/validate'
+import { db }          from '../config/database'
+
+// ── Types (mirror of frontend canvas.ts) ─────────────────────────────────────
+
+const PointSchema   = z.tuple([z.number(), z.number()])
+const PathDataSchema = z.object({
+  points: z.array(PointSchema),
+  color:  z.string().max(32),
+  width:  z.number().min(1).max(100),
+})
+const StickyDataSchema = z.object({
+  x:     z.number(),
+  y:     z.number(),
+  text:  z.string().max(1000),
+  color: z.string().max(32),
+  w:     z.number().optional(),
+  h:     z.number().optional(),
+})
+const ShapeDataSchema = z.object({
+  x:     z.number(),
+  y:     z.number(),
+  w:     z.number(),
+  h:     z.number(),
+  color: z.string().max(32),
+  fill:  z.boolean(),
+})
+const TextDataSchema = z.object({
+  x:        z.number(),
+  y:        z.number(),
+  text:     z.string().max(2000),
+  color:    z.string().max(32),
+  fontSize: z.number().min(8).max(200).optional(),
+  bold:     z.boolean().optional(),
+  italic:   z.boolean().optional(),
+})
+const ArrowDataSchema = z.object({
+  x1: z.number(), y1: z.number(),
+  x2: z.number(), y2: z.number(),
+  color: z.string().max(32),
+  width: z.number().min(1).max(50),
+})
+const ImageDataSchema = z.object({
+  x:      z.number(),
+  y:      z.number(),
+  w:      z.number(),
+  h:      z.number(),
+  url:    z.string().max(500),
+  assetId: z.string().uuid().optional(),
+})
+
+const VALID_KINDS = ['pen', 'sticky', 'rect', 'circle', 'text', 'arrow', 'image', 'eraser'] as const
+
+const CanvasElementSchema = z.object({
+  id:      z.string().uuid(),
+  ts:      z.number(),
+  author:  z.string().uuid(),
+  kind:    z.enum(VALID_KINDS),
+  data:    z.union([
+    PathDataSchema, StickyDataSchema, ShapeDataSchema,
+    TextDataSchema, ArrowDataSchema, ImageDataSchema,
+  ]),
+  deleted: z.boolean().optional(),
+})
+
+const SnapshotSchema = z.array(CanvasElementSchema).max(5000)
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function isModuleEnabled(): Promise<boolean> {
+  const { rows } = await db.query<{ enabled: boolean }>(
+    `SELECT enabled FROM modules WHERE id = 'canvas'`
+  )
+  return rows[0]?.enabled ?? false
+}
+
+async function boardExists(id: string): Promise<boolean> {
+  const { rows } = await db.query(
+    `SELECT 1 FROM canvas_boards WHERE id = $1`, [id]
+  )
+  return rows.length > 0
+}
+
+// ── Routes ────────────────────────────────────────────────────────────────────
+
+export default async function canvasRoutes(app: FastifyInstance) {
+
+  // ── POST /api/v1/canvas — Créer un board ─────────────────────────────────
+  app.post('/', {
+    preHandler: [rateLimit, requireAuth],
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          name:       { type: 'string', maxLength: 100 },
+          channel_id: { type: 'string' },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    if (!await isModuleEnabled()) {
+      return reply.code(403).send({ error: 'Le module Canvas n\'est pas activé.' })
+    }
+
+    const { name, channel_id } = req.body as { name?: string; channel_id?: string }
+    const userId = req.user!.userId
+
+    // Validate channel_id is a real UUID if provided
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (channel_id && !UUID_RE.test(channel_id)) {
+      return reply.code(400).send({ error: 'channel_id invalide.' })
+    }
+
+    // If channel_id provided, verify it exists
+    if (channel_id) {
+      const { rows } = await db.query(`SELECT 1 FROM channels WHERE id = $1`, [channel_id])
+      if (!rows.length) return reply.code(404).send({ error: 'Canal introuvable.' })
+    }
+
+    const { rows } = await db.query<{ id: string; name: string; created_at: string }>(
+      `INSERT INTO canvas_boards (name, channel_id, created_by)
+       VALUES ($1, $2, $3)
+       RETURNING id, name, channel_id, created_by, created_at, updated_at`,
+      [name?.trim() || 'Sans titre', channel_id ?? null, userId]
+    )
+    return reply.code(201).send({ board: rows[0] })
+  })
+
+  // ── GET /api/v1/canvas/channel/:channelId — Boards d'un canal ────────────
+  app.get<{ Params: { channelId: string } }>('/channel/:channelId', {
+    preHandler: [rateLimit, requireAuth],
+  }, async (req, reply) => {
+    if (!await isModuleEnabled()) {
+      return reply.code(403).send({ error: 'Le module Canvas n\'est pas activé.' })
+    }
+
+    const { channelId } = req.params
+    const { rows } = await db.query(
+      `SELECT id, name, channel_id, created_by, created_at, updated_at,
+              jsonb_array_length(snapshot) AS element_count
+       FROM canvas_boards
+       WHERE channel_id = $1
+       ORDER BY updated_at DESC`,
+      [channelId]
+    )
+    return reply.send({ boards: rows })
+  })
+
+  // ── GET /api/v1/canvas/:boardId — Charger un board ───────────────────────
+  app.get<{ Params: { boardId: string } }>('/:boardId', {
+    preHandler: [rateLimit, requireAuth],
+  }, async (req, reply) => {
+    if (!await isModuleEnabled()) {
+      return reply.code(403).send({ error: 'Le module Canvas n\'est pas activé.' })
+    }
+
+    const { rows } = await db.query(
+      `SELECT id, name, channel_id, created_by, snapshot, created_at, updated_at
+       FROM canvas_boards WHERE id = $1`,
+      [req.params.boardId]
+    )
+    if (!rows[0]) return reply.code(404).send({ error: 'Board introuvable.' })
+    return reply.send({ board: rows[0] })
+  })
+
+  // ── PATCH /api/v1/canvas/:boardId — Sauvegarder snapshot ─────────────────
+  app.patch<{ Params: { boardId: string } }>('/:boardId', {
+    preHandler: [rateLimit, requireAuth],
+  }, async (req, reply) => {
+    if (!await isModuleEnabled()) {
+      return reply.code(403).send({ error: 'Le module Canvas n\'est pas activé.' })
+    }
+
+    const { snapshot, name } = req.body as { snapshot?: unknown[]; name?: string }
+
+    // Validate snapshot if provided
+    if (snapshot !== undefined) {
+      const parsed = SnapshotSchema.safeParse(snapshot)
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'Snapshot invalide.', details: parsed.error.issues })
+      }
+    }
+
+    const updates: string[] = ['updated_at = NOW()']
+    const params: unknown[]  = [req.params.boardId]
+
+    if (name !== undefined) {
+      params.push(name.trim().slice(0, 100) || 'Sans titre')
+      updates.push(`name = $${params.length}`)
+    }
+    if (snapshot !== undefined) {
+      params.push(JSON.stringify(snapshot))
+      updates.push(`snapshot = $${params.length}`)
+    }
+
+    const { rows } = await db.query(
+      `UPDATE canvas_boards SET ${updates.join(', ')}
+       WHERE id = $1
+       RETURNING id, name, updated_at`,
+      params
+    )
+    if (!rows[0]) return reply.code(404).send({ error: 'Board introuvable.' })
+    return reply.send({ board: rows[0] })
+  })
+
+  // ── DELETE /api/v1/canvas/:boardId — Supprimer un board ──────────────────
+  app.delete<{ Params: { boardId: string } }>('/:boardId', {
+    preHandler: [rateLimit, requireAuth],
+  }, async (req, reply) => {
+    const userId   = req.user!.userId
+    const isAdmin  = (req.user as any)?.isAdmin ?? false
+
+    // Owner or admin can delete
+    const { rows } = await db.query(
+      `DELETE FROM canvas_boards
+       WHERE id = $1 AND (created_by = $2 OR $3)
+       RETURNING id`,
+      [req.params.boardId, userId, isAdmin]
+    )
+    if (!rows[0]) return reply.code(404).send({ error: 'Board introuvable ou non autorisé.' })
+    return reply.send({ ok: true })
+  })
+
+  // ── GET /api/v1/canvas/admin/all — Tous les boards (admin) ───────────────
+  app.get('/admin/all', {
+    preHandler: [adminOnly],
+  }, async (_req, reply) => {
+    const { rows } = await db.query(
+      `SELECT b.id, b.name, b.channel_id, b.created_by,
+              b.created_at, b.updated_at,
+              u.username AS creator_username,
+              jsonb_array_length(b.snapshot) AS element_count
+       FROM canvas_boards b
+       LEFT JOIN users u ON u.id = b.created_by
+       ORDER BY b.updated_at DESC
+       LIMIT 200`
+    )
+    return reply.send({ boards: rows })
+  })
+}

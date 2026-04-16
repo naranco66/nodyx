@@ -1,5 +1,6 @@
 import { registerVoiceHandlers, sendVoiceSnapshot } from './voice'
 import { registerWhisperHandlers } from './whisper'
+import { registerCanvasHandlers }  from './canvas'
 import { checkRateLimit } from './rateLimiter'
 import { Server, Socket } from 'socket.io'
 import jwt from 'jsonwebtoken'
@@ -337,6 +338,9 @@ export function registerSocketIO(server: Server): void {
 
     // ── Whisper rooms ─────────────────────────────────────────────────────────
     registerWhisperHandlers(server, socket)
+
+    // ── Canvas boards ─────────────────────────────────────────────────────────
+    registerCanvasHandlers(server, socket)
 
     // ── chat:join ─────────────────────────────────────────────────────────────
     socket.on('chat:join', async (channelId: string) => {

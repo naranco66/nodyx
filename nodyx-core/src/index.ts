@@ -30,6 +30,7 @@ import wikiRoutes            from './routes/wiki'
 import socialRoutes          from './routes/social'
 import { widgetStoreRoutes } from './routes/widgetStore'
 import { widgetDemoRoutes }  from './routes/widgetDemo'
+import canvasRoutes          from './routes/canvas'
 import { setIO }              from './socket/io'
 import { registerSocketIO } from './socket/index'
 import { runMigrations }    from './scripts/migrate'
@@ -146,6 +147,7 @@ server.register(wikiRoutes,           { prefix: '/api/v1/wiki' })
 server.register(socialRoutes,         { prefix: '/api/v1/social' })
 server.register(widgetStoreRoutes,    { prefix: '/api/v1' })
 server.register(widgetDemoRoutes,     { prefix: '/api/v1' })
+server.register(canvasRoutes,         { prefix: '/api/v1/canvas' })
 
 const start = async () => {
   // Validate critical environment variables at startup.
