@@ -63,19 +63,19 @@
 				headers: { Authorization: `Bearer ${token}` },
 			})
 			if (res.ok) {
-				const boards = await res.json() as { id: string }[]
-				if (boards.length > 0) {
-					canvasBoardId = boards[0].id
+				const data = await res.json() as { boards: { id: string }[] }
+				if (data.boards?.length > 0) {
+					canvasBoardId = data.boards[0].id
 				} else {
-					// Create new board
+					// Create new board — API expects channel_id (snake_case)
 					const r2 = await fetch('/api/v1/canvas', {
 						method: 'POST',
 						headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-						body: JSON.stringify({ channelId, name: selectedChannel.name ?? 'Canvas' }),
+						body: JSON.stringify({ channel_id: channelId, name: selectedChannel.name ?? 'Canvas' }),
 					})
 					if (r2.ok) {
-						const board = await r2.json() as { id: string }
-						canvasBoardId = board.id
+						const data2 = await r2.json() as { board: { id: string } }
+						canvasBoardId = data2.board?.id ?? null
 					}
 				}
 			}
