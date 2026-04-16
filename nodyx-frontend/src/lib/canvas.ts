@@ -103,6 +103,7 @@ export type CanvasElement = {
   kind:     CanvasTool
   data:     PathData | StickyData | ShapeData | TextData | ArrowData | ImageData | FrameData | ConnectorData
   deleted?: boolean
+  locked?:  boolean  // quand true : lecture seule (pas de drag/resize/delete)
   url?:     string   // optional link on any element
 }
 

@@ -68,8 +68,7 @@
 					</svg>
 				{:else if t.id === 'rect'}
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-						<path stroke-linecap="round" stroke-linejoin="round"
-							d="M5.25 7.5A2.25 2.25 0 013 5.25v-1.5A2.25 2.25 0 015.25 1.5h1.5A2.25 2.25 0 019 3.75M9 3.75h6M9 3.75a2.25 2.25 0 002.25 2.25h1.5A2.25 2.25 0 0015 3.75m0 0a2.25 2.25 0 012.25-2.25h1.5A2.25 2.25 0 0121 3.75v1.5a2.25 2.25 0 01-2.25 2.25M3 9v6M21 9v6M3 15a2.25 2.25 0 002.25 2.25h1.5A2.25 2.25 0 009 15m0 0h6m-6 0a2.25 2.25 0 012.25 2.25h1.5A2.25 2.25 0 0015 15m0 0a2.25 2.25 0 012.25 2.25h1.5A2.25 2.25 0 0021 15v-1.5a2.25 2.25 0 00-2.25-2.25"/>
+						<rect x="3" y="6" width="18" height="12" rx="1.5" stroke-linejoin="round"/>
 					</svg>
 				{:else if t.id === 'circle'}
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">

@@ -186,8 +186,29 @@
 	}
 
 	// ── Select tool ───────────────────────────────────────────────────────────
-	let selectedId: string | null = $state(null)
-	let dragMove:   { startX: number; startY: number; origEl: CanvasElement } | null = null
+	let selectedIds = $state(new Set<string>())
+	const selectedId = $derived(selectedIds.size === 1 ? [...selectedIds][0] : null)
+	// Multi-drag: stores original snapshot for every selected element
+	let dragMove: { startX: number; startY: number; origEls: Map<string, CanvasElement> } | null = null
+	// Lasso rectangle (world space)
+	let lassoStart: { x: number; y: number } | null = null
+	let lassoEnd:   { x: number; y: number } | null = null
+
+	// Anchor badges — positions screen-space, rebuilt every render()
+	let anchorBadges = new Map<string, [number, number]>()
+	// Lock badges — positions screen-space, rebuilt every render()
+	let lockBadges   = new Map<string, [number, number]>()
+
+	// ── Background color ──────────────────────────────────────────────────────
+	let bgColor = $state('#0a0a12')
+
+	// ── Minimap ───────────────────────────────────────────────────────────────
+	let minimapEl: HTMLCanvasElement | null = null
+	const MINIMAP_W = 160, MINIMAP_H = 100
+
+	// ── Brainwave Sync ────────────────────────────────────────────────────────
+	let syncMode = $state<'off' | 'leading' | 'following'>('off')
+	let syncViewThrottle = 0
 
 	// ── Remote cursors & peers ────────────────────────────────────────────────
 	type RemoteCursor = {
@@ -206,7 +227,25 @@
 	])
 
 	// ── Canvas chat ───────────────────────────────────────────────────────────
-	let chatMessages = $state<CanvasChatMsg[]>([])
+	const CHAT_STORAGE_KEY  = `canvas:chat:${boardId}`
+	const CHAT_MAX_STORED   = 200
+
+	function loadChatHistory(): CanvasChatMsg[] {
+		if (!browser) return []
+		try {
+			const raw = localStorage.getItem(CHAT_STORAGE_KEY)
+			return raw ? (JSON.parse(raw) as CanvasChatMsg[]) : []
+		} catch { return [] }
+	}
+
+	function saveChatHistory(msgs: CanvasChatMsg[]) {
+		if (!browser) return
+		try {
+			localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(msgs.slice(-CHAT_MAX_STORED)))
+		} catch {}
+	}
+
+	let chatMessages = $state<CanvasChatMsg[]>(loadChatHistory())
 
 	// ── UI ────────────────────────────────────────────────────────────────────
 	let showEndDialog   = $state(false)
@@ -306,13 +345,55 @@
 		const ctx = getCtx()
 		const W = canvasEl.width, H = canvasEl.height
 
-		ctx.clearRect(0, 0, W, H)
+		// Background fill
+		ctx.fillStyle = bgColor
+		ctx.fillRect(0, 0, W, H)
+
 		ctx.save()
 		ctx.setTransform(transform.scale, 0, 0, transform.scale, transform.x, transform.y)
 
 		if (showGrid) drawGrid(ctx, W, H)
 
-		for (const el of cs.snapshot()) drawElement(ctx, el, el.id === selectedId)
+		for (const el of cs.snapshot()) drawElement(ctx, el, selectedIds.has(el.id))
+
+		// Frame membership rings — ring coloré autour des enfants de chaque frame
+		for (const frameEl of cs.snapshot()) {
+			if (frameEl.kind !== 'frame' || frameEl.deleted) continue
+			const fd      = frameEl.data as FrameData
+			const children = getFrameChildren(frameEl)
+			if (children.length === 0) continue
+			const isFrameSelected = selectedIds.has(frameEl.id)
+			ctx.save()
+			ctx.strokeStyle = fd.color || '#818cf8'
+			ctx.lineWidth   = 1.5 / transform.scale
+			ctx.globalAlpha = isFrameSelected ? 0.55 : 0.22
+			ctx.setLineDash([3 / transform.scale, 2 / transform.scale])
+			for (const child of children) {
+				const b = getElementBounds(child)
+				if (!b) continue
+				const pad = 4
+				ctx.strokeRect(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2)
+			}
+			ctx.setLineDash([])
+			ctx.restore()
+		}
+
+		// Lasso rectangle (world space)
+		if (lassoStart && lassoEnd) {
+			ctx.save()
+			const lx = Math.min(lassoStart.x, lassoEnd.x)
+			const ly = Math.min(lassoStart.y, lassoEnd.y)
+			const lw = Math.abs(lassoEnd.x - lassoStart.x)
+			const lh = Math.abs(lassoEnd.y - lassoStart.y)
+			ctx.fillStyle   = 'rgba(129, 140, 248, 0.08)'
+			ctx.strokeStyle = '#818cf8'
+			ctx.lineWidth   = 1.5 / transform.scale
+			ctx.setLineDash([4 / transform.scale, 3 / transform.scale])
+			ctx.fillRect(lx, ly, lw, lh)
+			ctx.strokeRect(lx, ly, lw, lh)
+			ctx.setLineDash([])
+			ctx.restore()
+		}
 
 		// Live preview: rect / circle / shape / frame
 		if (previewEl && (tool === 'rect' || tool === 'circle' || tool === 'shape' || tool === 'frame')) {
@@ -351,12 +432,62 @@
 				color, lineWidth, 0.6, arrowStyle, arrowEndCap)
 		}
 
-		// Draw resize handles for selected element (after ctx.restore to use screen coords)
 		ctx.restore()
-		if (selectedId && tool === 'select') {
-			const selEl = cs.elements.get(selectedId)
-			if (selEl && !selEl.deleted) drawSelectionHandles(ctx, selEl)
+
+		// Selection handles / multi-select box (screen space)
+		if (tool === 'select') {
+			if (selectedIds.size === 1 && selectedId) {
+				const selEl = cs.elements.get(selectedId)
+				if (selEl && !selEl.deleted) drawSelectionHandles(ctx, selEl)
+			} else if (selectedIds.size > 1) {
+				drawMultiSelectionBox(ctx)
+			}
 		}
+
+		// Anchor badges — coin sup-droit de chaque enfant de frame (screen space)
+		anchorBadges = new Map()
+		if (tool === 'select') {
+			for (const frameEl of cs.snapshot()) {
+				if (frameEl.kind !== 'frame' || frameEl.deleted) continue
+				for (const child of getFrameChildren(frameEl)) {
+					const b = getElementBounds(child)
+					if (!b) continue
+					const [sx, sy] = worldToScreen(b.x + b.w, b.y, transform)
+					const bx = sx + 6, by = sy - 6
+					anchorBadges.set(child.id, [bx, by])
+					drawAnchorBadge(ctx, bx, by)
+				}
+			}
+		}
+
+		// Lock badges — coin sup-gauche
+		// Visible sur : éléments verrouillés (toujours) + éléments sélectionnés en mode select
+		lockBadges = new Map()
+		if (tool === 'select') {
+			for (const el of cs.snapshot()) {
+				if (el.deleted) continue
+				if (!el.locked && !selectedIds.has(el.id)) continue
+				const b = getElementBounds(el)
+				if (!b) continue
+				const [sx, sy] = worldToScreen(b.x, b.y, transform)
+				const bx = sx - 6, by = sy - 6
+				lockBadges.set(el.id, [bx, by])
+				drawLockBadge(ctx, bx, by, el.locked ?? false)
+			}
+		} else {
+			// Hors mode select : afficher quand même le badge sur les éléments verrouillés
+			for (const el of cs.snapshot()) {
+				if (!el.locked || el.deleted) continue
+				const b = getElementBounds(el)
+				if (!b) continue
+				const [sx, sy] = worldToScreen(b.x, b.y, transform)
+				const bx = sx - 6, by = sy - 6
+				lockBadges.set(el.id, [bx, by])
+				drawLockBadge(ctx, bx, by, true)
+			}
+		}
+
+		renderMinimap()
 	}
 
 	function drawGrid(ctx: CanvasRenderingContext2D, W: number, H: number) {
@@ -377,7 +508,7 @@
 	function drawElement(ctx: CanvasRenderingContext2D, el: CanvasElement, selected = false) {
 		ctx.save()
 		if (selected) {
-			ctx.shadowColor = '#818cf8'
+			ctx.shadowColor = el.locked ? '#fb923c' : '#818cf8'
 			ctx.shadowBlur  = 12 / transform.scale
 		}
 
@@ -516,13 +647,16 @@
 			ctx.globalAlpha  = selected ? 1 : 0.7
 			ctx.strokeRect(d.x, d.y, d.w, d.h)
 			ctx.setLineDash([])
-			// Name label
-			if (d.name) {
-				const fs = Math.max(11, 14 / transform.scale)
-				ctx.font      = `700 ${fs}px Inter,system-ui,sans-serif`
-				ctx.fillStyle = d.color || '#818cf8'
+			// Name label + child count
+			{
+				const frameChildren = getFrameChildren(el)
+				const fs    = Math.max(11, 14 / transform.scale)
+				const count = frameChildren.length
+				ctx.font        = `700 ${fs}px Inter,system-ui,sans-serif`
+				ctx.fillStyle   = d.color || '#818cf8'
 				ctx.globalAlpha = 0.9
-				ctx.fillText(d.name, d.x + 6, d.y - 4)
+				const label = (d.name || 'Frame') + (count > 0 ? `  ·  ${count} élément${count > 1 ? 's' : ''}` : '')
+				ctx.fillText(label, d.x + 6, d.y - 4)
 			}
 
 		} else if (el.kind === 'shape') {
@@ -688,6 +822,7 @@
 		e.preventDefault()
 		const rect = canvasEl.getBoundingClientRect()
 		transform  = zoomAt(transform, e.deltaY, e.clientX - rect.left, e.clientY - rect.top)
+		if (syncMode === 'leading') socket?.emit('canvas:sync:view', { boardId, transform })
 		render()
 	}
 
@@ -747,25 +882,68 @@
 		if (tool === 'eraser') { eraseAt(wx, wy); isDrawing = true; return }
 
 		if (tool === 'select') {
-			// Check resize handle first (screen space test)
-			const screenX = e.clientX - canvasEl.getBoundingClientRect().left
-			const screenY = e.clientY - canvasEl.getBoundingClientRect().top
+			const rect2   = canvasEl.getBoundingClientRect()
+			const screenX = e.clientX - rect2.left
+			const screenY = e.clientY - rect2.top
+
+			// Lock badge click → toggle verrou
+			for (const [id, [bx, by]] of lockBadges) {
+				if (Math.hypot(screenX - bx, screenY - by) <= 10) {
+					toggleLock(id); render(); return
+				}
+			}
+
+			// Anchor badge click → détacher l'élément du frame
+			for (const [id, [bx, by]] of anchorBadges) {
+				if (Math.hypot(screenX - bx, screenY - by) <= 10) {
+					detachFromFrame(id); render(); return
+				}
+			}
+
+			// Resize handle: single selection only (pas sur éléments verrouillés)
 			if (selectedId) {
 				const selEl = cs.elements.get(selectedId)
-				if (selEl && !selEl.deleted) {
+				if (selEl && !selEl.deleted && !selEl.locked) {
 					const h = hitTestHandle(selEl, screenX, screenY)
 					if (h) {
 						resizeState = { handle: h, origEl: structuredClone(selEl), startWx: wx, startWy: wy }
-						render()
-						return
+						render(); return
 					}
 				}
 			}
 			const hit = hitTestAll(wx, wy)
-			selectedId = hit?.id ?? null
-			if (hit) dragMove = { startX: wx, startY: wy, origEl: structuredClone(hit) }
-			render()
-			return
+			if (hit) {
+				if (e.shiftKey) {
+					const next = new Set(selectedIds)
+					if (next.has(hit.id)) next.delete(hit.id); else next.add(hit.id)
+					selectedIds = next
+				} else if (!selectedIds.has(hit.id)) {
+					selectedIds = new Set([hit.id])
+				}
+				// Élément verrouillé : sélection uniquement, pas de drag
+				if (hit.locked) { render(); return }
+				// Snapshot origEls pour chaque élément sélectionné
+				const origEls = new Map<string, CanvasElement>()
+				for (const id of selectedIds) {
+					const el = cs.elements.get(id)
+					if (el && !el.deleted) origEls.set(id, structuredClone(el))
+				}
+				// Si un frame est sélectionné, inclure ses enfants dans le drag
+				for (const id of selectedIds) {
+					const frameEl = cs.elements.get(id)
+					if (frameEl && frameEl.kind === 'frame') {
+						for (const child of getFrameChildren(frameEl)) {
+							if (!origEls.has(child.id)) origEls.set(child.id, structuredClone(child))
+						}
+					}
+				}
+				dragMove = { startX: wx, startY: wy, origEls }
+			} else {
+				if (!e.shiftKey) selectedIds = new Set()
+				lassoStart = { x: wx, y: wy }
+				lassoEnd   = { x: wx, y: wy }
+			}
+			render(); return
 		}
 
 		isDrawing = true
@@ -787,8 +965,12 @@
 			socket?.emit('canvas:cursor', { boardId, x: wx, y: wy, speaking: vs.mySpeaking ?? false, tool, color, avatar: userAvatar })
 		}
 
-		if (!isDrawing && !dragMove && !resizeState) return
+		if (!isDrawing && !dragMove && !resizeState && !lassoStart) return
 
+		if (tool === 'select' && lassoStart) {
+			lassoEnd = { x: wx, y: wy }
+			render(); return
+		}
 		if (tool === 'select' && resizeState && selectedId) {
 			const dwx = wx - resizeState.startWx
 			const dwy = wy - resizeState.startWy
@@ -796,12 +978,15 @@
 			cs.apply(resized); render()
 			return
 		}
-		if (tool === 'select' && dragMove && selectedId) {
-			const el = cs.elements.get(selectedId)
-			if (!el) return
-			const moved = moveElement(el, dragMove.origEl.data, wx - dragMove.startX, wy - dragMove.startY)
-			if (moved) { cs.apply(moved); render() }
-			return
+		if (tool === 'select' && dragMove) {
+			const dx = wx - dragMove.startX, dy = wy - dragMove.startY
+			for (const [id, origEl] of dragMove.origEls) {
+				const el = cs.elements.get(id)
+				if (!el) continue
+				const moved = moveElement(el, origEl.data, dx, dy)
+				if (moved) cs.apply(moved)
+			}
+			render(); return
 		}
 		if (tool === 'eraser') { eraseAt(wx, wy); return }
 
@@ -839,17 +1024,34 @@
 				pushUndo({ id: selectedId, before: resizeState.origEl, after: el })
 				socket?.emit('canvas:op', { boardId, op: el })
 			}
-			resizeState = null
-			return
+			resizeState = null; return
 		}
-		if (tool === 'select' && dragMove && selectedId) {
-			const el = cs.elements.get(selectedId)
-			if (el && el.ts > dragMove.origEl.ts) {
-				pushUndo({ id: selectedId, before: dragMove.origEl, after: el })
-				socket?.emit('canvas:op', { boardId, op: el })
+		if (tool === 'select' && dragMove) {
+			for (const [id, origEl] of dragMove.origEls) {
+				const el = cs.elements.get(id)
+				if (el && el.ts > origEl.ts) {
+					pushUndo({ id, before: origEl, after: el })
+					socket?.emit('canvas:op', { boardId, op: el })
+				}
 			}
-			dragMove = null
-			return
+			dragMove = null; return
+		}
+		if (tool === 'select' && lassoStart && lassoEnd) {
+			const lx = Math.min(lassoStart.x, lassoEnd.x)
+			const ly = Math.min(lassoStart.y, lassoEnd.y)
+			const lw = Math.abs(lassoEnd.x - lassoStart.x)
+			const lh = Math.abs(lassoEnd.y - lassoStart.y)
+			if (lw > 5 && lh > 5) {
+				const hits = cs.snapshot().filter(el => !el.deleted && elementInRect(el, { x: lx, y: ly, w: lw, h: lh }))
+				if (e.shiftKey) {
+					const next = new Set(selectedIds)
+					for (const el of hits) next.add(el.id)
+					selectedIds = next
+				} else {
+					selectedIds = new Set(hits.map(el => el.id))
+				}
+			}
+			lassoStart = null; lassoEnd = null; render(); return
 		}
 
 		if (!isDrawing) return
@@ -936,6 +1138,13 @@
 	}
 	function updatePan(e: PointerEvent) {
 		transform = { ...transform, x: panStart.ox + (e.clientX - panStart.x), y: panStart.oy + (e.clientY - panStart.y) }
+		if (syncMode === 'leading') {
+			const now = Date.now()
+			if (now - syncViewThrottle > 50) {
+				syncViewThrottle = now
+				socket?.emit('canvas:sync:view', { boardId, transform })
+			}
+		}
 		render()
 	}
 
@@ -968,6 +1177,7 @@
 	function eraseAt(wx: number, wy: number) {
 		const R = 20 / transform.scale
 		for (const el of cs.snapshot()) {
+			if (el.locked) continue
 			if (hitTest(el, wx, wy, R)) {
 				const del = { ...el, deleted: true, ts: Date.now() }
 				pushUndo({ id: el.id, before: el, after: del })
@@ -1020,6 +1230,299 @@
 			return Math.hypot(wx - (d.x1 + t * ddx), wy - (d.y1 + t * ddy)) < r * 2
 		}
 		return false
+	}
+
+	// ── Element bounds & multi-selection helpers ─────────────────────────────
+
+	function getElementBounds(el: CanvasElement): { x: number; y: number; w: number; h: number } | null {
+		if (el.kind === 'pen') {
+			const d = el.data as PathData
+			if (d.points.length === 0) return null
+			const xs = d.points.map(p => p[0]), ys = d.points.map(p => p[1])
+			const x = Math.min(...xs), y = Math.min(...ys)
+			return { x, y, w: Math.max(...xs) - x || 1, h: Math.max(...ys) - y || 1 }
+		}
+		if (el.kind === 'arrow') {
+			const d = el.data as ArrowData
+			return { x: Math.min(d.x1, d.x2), y: Math.min(d.y1, d.y2), w: Math.abs(d.x2 - d.x1) || 1, h: Math.abs(d.y2 - d.y1) || 1 }
+		}
+		if (el.kind === 'connector') {
+			const d = el.data as ConnectorData
+			return { x: Math.min(d.x1, d.x2), y: Math.min(d.y1, d.y2), w: Math.abs(d.x2 - d.x1) || 1, h: Math.abs(d.y2 - d.y1) || 1 }
+		}
+		if (el.kind === 'text') {
+			const d = el.data as TextData
+			return { x: d.x, y: d.y - (d.fontSize ?? 18), w: d.w ?? 300, h: (d.fontSize ?? 18) * 3 }
+		}
+		return getResizableBounds(el)
+	}
+
+	function elementInRect(el: CanvasElement, rect: { x: number; y: number; w: number; h: number }): boolean {
+		const b = getElementBounds(el)
+		if (!b) return false
+		return b.x + b.w >= rect.x && b.x <= rect.x + rect.w &&
+		       b.y + b.h >= rect.y && b.y <= rect.y + rect.h
+	}
+
+	function getFrameChildren(frameEl: CanvasElement): CanvasElement[] {
+		if (frameEl.kind !== 'frame') return []
+		const fd = frameEl.data as FrameData
+		return cs.snapshot().filter(el => {
+			if (el.id === frameEl.id || el.deleted) return false
+			const b = getElementBounds(el)
+			if (!b) return false
+			// L'élément appartient au frame si son centre est dans les bounds
+			const cx = b.x + b.w / 2, cy = b.y + b.h / 2
+			return cx >= fd.x && cx <= fd.x + fd.w && cy >= fd.y && cy <= fd.y + fd.h
+		})
+	}
+
+	function drawAnchorBadge(ctx: CanvasRenderingContext2D, sx: number, sy: number) {
+		ctx.save()
+		ctx.setTransform(1, 0, 0, 1, 0, 0)
+
+		// Cercle de fond violet
+		ctx.beginPath()
+		ctx.arc(sx, sy, 9, 0, Math.PI * 2)
+		ctx.fillStyle = 'rgba(109, 40, 217, 0.92)'
+		ctx.fill()
+		ctx.strokeStyle = '#a78bfa'
+		ctx.lineWidth   = 1
+		ctx.stroke()
+
+		// Ancre blanche
+		ctx.strokeStyle = 'rgba(255,255,255,0.95)'
+		ctx.lineWidth   = 1.3
+		ctx.lineCap     = 'round'
+		const cx = sx, cy = sy
+
+		// Anneau supérieur
+		ctx.beginPath()
+		ctx.arc(cx, cy - 3.2, 1.6, 0, Math.PI * 2)
+		ctx.stroke()
+
+		// Tige verticale
+		ctx.beginPath()
+		ctx.moveTo(cx, cy - 1.6)
+		ctx.lineTo(cx, cy + 3.2)
+		ctx.stroke()
+
+		// Barre transversale (stock)
+		ctx.beginPath()
+		ctx.moveTo(cx - 3.2, cy - 0.2)
+		ctx.lineTo(cx + 3.2, cy - 0.2)
+		ctx.stroke()
+
+		// Arc du bas (couronne)
+		ctx.beginPath()
+		ctx.arc(cx, cy + 1.4, 2.4, 0.15, Math.PI - 0.15)
+		ctx.stroke()
+
+		// Extrémités gauche/droite qui remontent
+		ctx.beginPath()
+		ctx.moveTo(cx - 2.3, cy + 1.4)
+		ctx.lineTo(cx - 3.2, cy - 0.4)
+		ctx.stroke()
+		ctx.beginPath()
+		ctx.moveTo(cx + 2.3, cy + 1.4)
+		ctx.lineTo(cx + 3.2, cy - 0.4)
+		ctx.stroke()
+
+		ctx.restore()
+	}
+
+	function detachFromFrame(id: string) {
+		const el = cs.elements.get(id)
+		if (!el || el.deleted) return
+		for (const frameEl of cs.snapshot()) {
+			if (frameEl.kind !== 'frame' || frameEl.deleted) continue
+			if (!getFrameChildren(frameEl).find(c => c.id === id)) continue
+			const fd = frameEl.data as FrameData
+			const b  = getElementBounds(el)
+			if (!b) return
+			// Déplace juste en-dessous du frame
+			const dy = (fd.y + fd.h + 32) - b.y
+			const moved = moveElement(el, el.data, 0, dy)
+			if (moved) {
+				pushUndo({ id, before: el, after: moved })
+				cs.apply(moved)
+				socket?.emit('canvas:op', { boardId, op: moved })
+			}
+			return
+		}
+	}
+
+	function drawLockBadge(ctx: CanvasRenderingContext2D, sx: number, sy: number, locked: boolean) {
+		ctx.save()
+		ctx.setTransform(1, 0, 0, 1, 0, 0)
+
+		// Cercle de fond
+		ctx.beginPath()
+		ctx.arc(sx, sy, 9, 0, Math.PI * 2)
+		ctx.fillStyle   = locked ? 'rgba(154, 52, 18, 0.92)' : 'rgba(25, 25, 40, 0.78)'
+		ctx.fill()
+		ctx.strokeStyle = locked ? '#fb923c' : 'rgba(255,255,255,0.18)'
+		ctx.lineWidth   = 1
+		ctx.stroke()
+
+		const cx = sx, cy = sy + 0.5
+		ctx.strokeStyle = locked ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.45)'
+		ctx.fillStyle   = locked ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.45)'
+		ctx.lineWidth   = 1.3
+		ctx.lineCap     = 'round'
+		ctx.lineJoin    = 'round'
+
+		// Corps du cadenas (rectangle)
+		ctx.beginPath()
+		ctx.roundRect(cx - 2.8, cy - 0.2, 5.6, 4.2, 0.8)
+		ctx.fill()
+
+		// Anse (shackle)
+		ctx.beginPath()
+		if (locked) {
+			// Fermé : arc complet en haut
+			ctx.moveTo(cx - 2.1, cy - 0.2)
+			ctx.lineTo(cx - 2.1, cy - 2)
+			ctx.arc(cx, cy - 2, 2.1, Math.PI, 0)
+			ctx.lineTo(cx + 2.1, cy - 0.2)
+		} else {
+			// Ouvert : seul le poteau gauche, anse décalée vers le haut-droite
+			ctx.moveTo(cx - 2.1, cy - 0.2)
+			ctx.lineTo(cx - 2.1, cy - 2)
+			ctx.arc(cx, cy - 2, 2.1, Math.PI, Math.PI * 1.6)
+		}
+		ctx.stroke()
+
+		// Trou de serrure (uniquement fermé)
+		if (locked) {
+			ctx.fillStyle = 'rgba(154,52,18,0.88)'
+			ctx.beginPath()
+			ctx.arc(cx, cy + 1.3, 1, 0, Math.PI * 2)
+			ctx.fill()
+			ctx.fillRect(cx - 0.5, cy + 1.4, 1, 1.4)
+		}
+
+		ctx.restore()
+	}
+
+	function toggleLock(id: string) {
+		const el = cs.elements.get(id)
+		if (!el || el.deleted) return
+		const updated = { ...el, ts: Date.now(), locked: !el.locked }
+		pushUndo({ id, before: el, after: updated })
+		cs.apply(updated)
+		socket?.emit('canvas:op', { boardId, op: updated })
+	}
+
+	function drawMultiSelectionBox(ctx: CanvasRenderingContext2D) {
+		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+		for (const id of selectedIds) {
+			const el = cs.elements.get(id)
+			if (!el || el.deleted) continue
+			const b = getElementBounds(el)
+			if (!b) continue
+			minX = Math.min(minX, b.x); minY = Math.min(minY, b.y)
+			maxX = Math.max(maxX, b.x + b.w); maxY = Math.max(maxY, b.y + b.h)
+		}
+		if (!isFinite(minX)) return
+		const pad = 8 / transform.scale
+		ctx.save()
+		ctx.setTransform(1, 0, 0, 1, 0, 0)
+		const [sx, sy]   = worldToScreen(minX - pad, minY - pad, transform)
+		const [sx2, sy2] = worldToScreen(maxX + pad, maxY + pad, transform)
+		ctx.strokeStyle = '#818cf8'
+		ctx.lineWidth   = 1.5
+		ctx.setLineDash([5, 3])
+		ctx.strokeRect(sx, sy, sx2 - sx, sy2 - sy)
+		ctx.setLineDash([])
+		ctx.restore()
+	}
+
+	// ── Minimap ───────────────────────────────────────────────────────────────
+
+	function renderMinimap() {
+		if (!minimapEl) return
+		const ctx2 = minimapEl.getContext('2d')
+		if (!ctx2) return
+
+		ctx2.fillStyle = bgColor
+		ctx2.fillRect(0, 0, MINIMAP_W, MINIMAP_H)
+
+		const els = cs.snapshot()
+		if (els.length === 0) return
+
+		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+		for (const el of els) {
+			const b = getElementBounds(el)
+			if (!b) continue
+			minX = Math.min(minX, b.x); minY = Math.min(minY, b.y)
+			maxX = Math.max(maxX, b.x + b.w); maxY = Math.max(maxY, b.y + b.h)
+		}
+		if (!isFinite(minX)) return
+
+		const margin  = 10
+		const cW = maxX - minX || 1, cH = maxY - minY || 1
+		const mmScale = Math.min((MINIMAP_W - margin * 2) / cW, (MINIMAP_H - margin * 2) / cH, 0.4)
+		const ox = margin + ((MINIMAP_W - margin * 2) - cW * mmScale) / 2 - minX * mmScale
+		const oy = margin + ((MINIMAP_H - margin * 2) - cH * mmScale) / 2 - minY * mmScale
+
+		// Element blobs
+		ctx2.fillStyle = 'rgba(139, 92, 246, 0.6)'
+		for (const el of els) {
+			const b = getElementBounds(el)
+			if (!b) continue
+			ctx2.fillRect(b.x * mmScale + ox, b.y * mmScale + oy, Math.max(2, b.w * mmScale), Math.max(2, b.h * mmScale))
+		}
+
+		// Viewport rect
+		if (!canvasEl) return
+		const [vx1, vy1] = screenToWorld(0, 0, transform)
+		const [vx2, vy2] = screenToWorld(canvasEl.width, canvasEl.height, transform)
+		ctx2.strokeStyle = 'rgba(255,255,255,0.55)'
+		ctx2.lineWidth   = 1
+		ctx2.setLineDash([3, 2])
+		ctx2.strokeRect(vx1 * mmScale + ox, vy1 * mmScale + oy, (vx2 - vx1) * mmScale, (vy2 - vy1) * mmScale)
+		ctx2.setLineDash([])
+	}
+
+	function onMinimapClick(e: MouseEvent) {
+		if (!minimapEl || !canvasEl) return
+		const els = cs.snapshot()
+		if (els.length === 0) return
+		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+		for (const el of els) {
+			const b = getElementBounds(el)
+			if (!b) continue
+			minX = Math.min(minX, b.x); minY = Math.min(minY, b.y)
+			maxX = Math.max(maxX, b.x + b.w); maxY = Math.max(maxY, b.y + b.h)
+		}
+		if (!isFinite(minX)) return
+		const margin = 10
+		const cW = maxX - minX || 1, cH = maxY - minY || 1
+		const mmScale = Math.min((MINIMAP_W - margin * 2) / cW, (MINIMAP_H - margin * 2) / cH, 0.4)
+		const ox = margin + ((MINIMAP_W - margin * 2) - cW * mmScale) / 2 - minX * mmScale
+		const oy = margin + ((MINIMAP_H - margin * 2) - cH * mmScale) / 2 - minY * mmScale
+		const rect = minimapEl.getBoundingClientRect()
+		const wx = (e.clientX - rect.left - ox) / mmScale
+		const wy = (e.clientY - rect.top  - oy) / mmScale
+		transform = {
+			...transform,
+			x: canvasEl.width  / 2 - wx * transform.scale,
+			y: canvasEl.height / 2 - wy * transform.scale,
+		}
+		render()
+	}
+
+	// ── Brainwave Sync ────────────────────────────────────────────────────────
+
+	function toggleBrainwaveSync() {
+		if (syncMode === 'off')        syncMode = 'leading'
+		else if (syncMode === 'leading') syncMode = 'following'
+		else                           syncMode = 'off'
+	}
+
+	function handleSyncView({ transform: t }: { boardId: string; transform: ViewTransform }) {
+		if (syncMode === 'following') { transform = t; render() }
 	}
 
 	// ── Image upload ──────────────────────────────────────────────────────────
@@ -1174,7 +1677,10 @@
 		}
 	}
 	function handleCanvasChat({ msg }: { msg: CanvasChatMsg }) {
-		if (msg.userId !== userId) chatMessages = [...chatMessages, msg]
+		if (msg.userId !== userId) {
+			chatMessages = [...chatMessages, msg]
+			saveChatHistory(chatMessages)
+		}
 	}
 	function onVoiceSpeaking({ userId: uid, speaking }: { userId: string; speaking: boolean }) {
 		const c = remoteCursors.get(uid); if (!c) return
@@ -1187,6 +1693,7 @@
 	function sendChat(text: string) {
 		const msg: CanvasChatMsg = { id: crypto.randomUUID(), userId, username, text, ts: Date.now() }
 		chatMessages = [...chatMessages, msg]
+		saveChatHistory(chatMessages)
 		socket?.emit('canvas:chat', { boardId, msg })
 	}
 
@@ -1219,6 +1726,10 @@
 	// ── Keyboard ──────────────────────────────────────────────────────────────
 
 	function onKeydown(e: KeyboardEvent) {
+		// Ne pas interférer quand l'utilisateur tape dans un input/textarea/chat
+		const tag = (e.target as HTMLElement)?.tagName
+		if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
+
 		if (e.code === 'Space' && !overlayEdit) { spaceDown = true; e.preventDefault() }
 		if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey)  { e.preventDefault(); undo() }
 		if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); redo() }
@@ -1239,20 +1750,24 @@
 			else if (k === 'e') tool = 'eraser'
 		}
 		if (e.key === 'Escape') {
-			if (connectorFirstPt) { connectorFirstPt = null; render(); return }
-			if (overlayEdit)      { overlayEdit = null; return }
-			if (frameNameOverlay) { frameNameOverlay = null; return }
-			if (selectedId)       { selectedId  = null; render(); return }
+			if (connectorFirstPt)   { connectorFirstPt = null; render(); return }
+			if (overlayEdit)        { overlayEdit = null; return }
+			if (frameNameOverlay)   { frameNameOverlay = null; return }
+			if (lassoStart)         { lassoStart = null; lassoEnd = null; render(); return }
+			if (selectedIds.size > 0) { selectedIds = new Set(); render(); return }
 			requestClose()
 		}
-		if (e.key === 'Delete' && selectedId) {
-			const el = cs.elements.get(selectedId)
-			if (el) {
-				const del = { ...el, deleted: true, ts: Date.now() }
-				pushUndo({ id: selectedId, before: el, after: del })
-				cs.apply(del); socket?.emit('canvas:op', { boardId, op: del }); render()
+		if (e.key === 'Delete' && selectedIds.size > 0) {
+			const ts = Date.now()
+			for (const id of selectedIds) {
+				const el = cs.elements.get(id)
+				if (el && !el.deleted && !el.locked) {
+					const del = { ...el, deleted: true, ts }
+					pushUndo({ id, before: el, after: del })
+					cs.apply(del); socket?.emit('canvas:op', { boardId, op: del })
+				}
 			}
-			selectedId = null
+			selectedIds = new Set(); render()
 		}
 		if (e.key === 'Enter' && overlayEdit) { e.preventDefault(); submitOverlay() }
 	}
@@ -1283,12 +1798,13 @@
 		})
 		ro.observe(containerEl)
 
-		socket?.on('canvas:snapshot', handleSnapshot)
-		socket?.on('canvas:op',       handleRemoteOp)
-		socket?.on('canvas:clear',    handleRemoteClear)
-		socket?.on('canvas:cursor',   handleRemoteCursor)
-		socket?.on('canvas:chat',     handleCanvasChat)
-		socket?.on('voice:speaking',  onVoiceSpeaking)
+		socket?.on('canvas:snapshot',  handleSnapshot)
+		socket?.on('canvas:op',        handleRemoteOp)
+		socket?.on('canvas:clear',     handleRemoteClear)
+		socket?.on('canvas:cursor',    handleRemoteCursor)
+		socket?.on('canvas:chat',      handleCanvasChat)
+		socket?.on('voice:speaking',   onVoiceSpeaking)
+		socket?.on('canvas:sync:view', handleSyncView)
 		socket?.emit('canvas:join', { boardId })
 
 		window.addEventListener('keydown', onKeydown)
@@ -1310,12 +1826,13 @@
 	onDestroy(() => {
 		if (!browser) return
 		ro?.disconnect()
-		socket?.off('canvas:snapshot', handleSnapshot)
-		socket?.off('canvas:op',       handleRemoteOp)
-		socket?.off('canvas:clear',    handleRemoteClear)
-		socket?.off('canvas:cursor',   handleRemoteCursor)
-		socket?.off('canvas:chat',     handleCanvasChat)
-		socket?.off('voice:speaking',  onVoiceSpeaking)
+		socket?.off('canvas:snapshot',  handleSnapshot)
+		socket?.off('canvas:op',        handleRemoteOp)
+		socket?.off('canvas:clear',     handleRemoteClear)
+		socket?.off('canvas:cursor',    handleRemoteCursor)
+		socket?.off('canvas:chat',      handleCanvasChat)
+		socket?.off('voice:speaking',   onVoiceSpeaking)
+		socket?.off('canvas:sync:view', handleSyncView)
 		window.removeEventListener('keydown', onKeydown)
 		window.removeEventListener('keyup',   onKeyup)
 		clearInterval(cursorCleanup)
@@ -1323,8 +1840,9 @@
 
 	// ── Effects ───────────────────────────────────────────────────────────────
 
-	// Re-render when grid visibility changes (triggered from CanvasBottomBar)
+	// Re-render when grid or background changes
 	$effect(() => { void showGrid; render() })
+	$effect(() => { void bgColor; render() })
 
 	// Cursor style
 	$effect(() => {
@@ -1460,12 +1978,62 @@
 				{canRedo}
 				bind:showGrid
 				bind:snapEnabled
+				bind:bgColor
 				onZoomIn={zoomIn}
 				onZoomOut={zoomOut}
 				onResetView={resetView}
 				onUndo={undo}
 				onRedo={redo}
 			/>
+		</div>
+
+		<!-- ── Minimap + Brainwave Sync ── -->
+		<div
+			role="presentation"
+			style="position:absolute; bottom:70px; right:12px; z-index:20; pointer-events:auto;"
+			onmousedown={(e) => e.stopPropagation()}
+		>
+			<div class="minimap-wrap">
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
+				<canvas
+					bind:this={minimapEl}
+					width={MINIMAP_W}
+					height={MINIMAP_H}
+					style="display:block; cursor:pointer; border-radius:8px 8px 0 0;"
+					onclick={onMinimapClick}
+					title="Minimap — cliquer pour naviguer"
+				></canvas>
+				<button
+					class="sync-btn"
+					class:sync-leading={syncMode === 'leading'}
+					class:sync-following={syncMode === 'following'}
+					onclick={toggleBrainwaveSync}
+					title={syncMode === 'off'
+						? 'Brainwave Sync — off (cliquer pour conduire)'
+						: syncMode === 'leading'
+						? 'Brainwave Sync — Conducteur (cliquer pour suivre)'
+						: 'Brainwave Sync — Suiveur (cliquer pour désactiver)'}
+				>
+					{#if syncMode === 'off'}
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="12" height="12">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/>
+						</svg>
+					{:else if syncMode === 'leading'}
+						<svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+							<path d="M12 3a9 9 0 100 18A9 9 0 0012 3zm0 3.5a2 2 0 110 4 2 2 0 010-4zm0 10a6 6 0 01-4.47-2 6 6 0 018.94 0A6 6 0 0112 16.5z"/>
+						</svg>
+					{:else}
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="12" height="12">
+							<circle cx="12" cy="12" r="2.5"/>
+							<path stroke-linecap="round" d="M12 7V5M12 19v-2M7 12H5M19 12h-2M8.46 8.46l-1.41-1.41M16.95 16.95l-1.41-1.41M8.46 15.54l-1.41 1.41M16.95 7.05l-1.41 1.41"/>
+						</svg>
+					{/if}
+					<span style="font-size:9px; font-weight:700; font-family:monospace; letter-spacing:0.05em;">
+						{syncMode === 'off' ? 'SYNC' : syncMode === 'leading' ? 'LEAD' : 'FOLLOW'}
+					</span>
+				</button>
+			</div>
 		</div>
 
 		<!-- ── Loading indicator ── -->
@@ -1637,6 +2205,37 @@
 </div>
 
 <style>
+	.minimap-wrap {
+		background: rgba(10, 10, 18, 0.9);
+		backdrop-filter: blur(16px);
+		-webkit-backdrop-filter: blur(16px);
+		border: 1px solid rgba(255,255,255,0.07);
+		border-radius: 10px;
+		overflow: hidden;
+		box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 0 0 1px rgba(124,58,237,0.06);
+	}
+	.minimap-wrap canvas {
+		border-bottom: 1px solid rgba(255,255,255,0.05);
+	}
+	.sync-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 4px;
+		width: 100%;
+		padding: 5px 8px;
+		border: none;
+		background: transparent;
+		color: #4b5563;
+		cursor: pointer;
+		transition: all 0.12s;
+	}
+	.sync-btn:hover { background: rgba(255,255,255,0.05); color: #9ca3af; }
+	.sync-btn.sync-leading  { color: #a855f7; background: rgba(168,85,247,0.08); }
+	.sync-btn.sync-leading:hover  { background: rgba(168,85,247,0.14); }
+	.sync-btn.sync-following { color: #22d3ee; background: rgba(34,211,238,0.08); }
+	.sync-btn.sync-following:hover { background: rgba(34,211,238,0.14); }
+
 	.canvas-cursor-speaking {
 		animation: avatar-breathe 1.5s ease-in-out infinite;
 		filter: drop-shadow(0 0 8px rgba(168, 85, 247, 0.9));

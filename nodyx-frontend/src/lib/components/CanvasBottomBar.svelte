@@ -7,6 +7,7 @@
 		canRedo     = false,
 		showGrid    = $bindable(true),
 		snapEnabled = $bindable(false),
+		bgColor     = $bindable('#0a0a12'),
 		onZoomIn,
 		onZoomOut,
 		onResetView,
@@ -18,6 +19,7 @@
 		canRedo:     boolean
 		showGrid:    boolean
 		snapEnabled: boolean
+		bgColor:     string
 		onZoomIn:    () => void
 		onZoomOut:   () => void
 		onResetView: () => void
@@ -26,6 +28,37 @@
 	} = $props()
 
 	const pct = $derived(Math.round(transform.scale * 100))
+
+	const BG_PRESETS = [
+		// Sombres
+		{ color: '#0a0a12', label: 'Nuit'        },
+		{ color: '#0f172a', label: 'Minuit'      },
+		{ color: '#111827', label: 'Ardoise'     },
+		{ color: '#1c1917', label: 'Charbon'     },
+		{ color: '#030712', label: 'Encre'       },
+		{ color: '#0e1117', label: 'Obsidienne'  },
+		{ color: '#18181b', label: 'Zinc'        },
+		// Colorés sombres
+		{ color: '#0a1628', label: 'Océan'       },
+		{ color: '#0d1f0d', label: 'Forêt'       },
+		{ color: '#1a0a1a', label: 'Prune'       },
+		{ color: '#1a1430', label: 'Lavande'     },
+		{ color: '#1a0f0a', label: 'Braise'      },
+		{ color: '#0d1a14', label: 'Émeraude'    },
+		{ color: '#0f1a1a', label: 'Pétrole'     },
+		// Clairs
+		{ color: '#f8fafc', label: 'Blanc'       },
+		{ color: '#faf7f2', label: 'Papier'      },
+		{ color: '#e8f4f8', label: 'Ciel pâle'   },
+		{ color: '#fef3c7', label: 'Soleil doux' },
+		{ color: '#f0fdf4', label: 'Menthe'      },
+		{ color: '#fdf2f8', label: 'Rose pâle'   },
+		{ color: '#fffbeb', label: 'Ivoire'      },
+	]
+
+	const isCustomColor = $derived(!BG_PRESETS.some(p => p.color === bgColor))
+
+	let colorPickerEl: HTMLInputElement
 </script>
 
 <div class="bottom-bar">
@@ -93,9 +126,53 @@
 		</button>
 	</div>
 
-	<!-- Hint -->
 	<div class="sep-v"></div>
-	<span class="hint">Molette: zoom · Espace+drag: déplacer</span>
+
+	<!-- Background -->
+	<div class="bg-section">
+		<span class="bg-label">Fond</span>
+		<div class="bg-grid">
+			{#each BG_PRESETS as preset}
+				<button
+					class="bg-swatch"
+					class:active={bgColor === preset.color}
+					style="background:{preset.color};"
+					onclick={() => bgColor = preset.color}
+					title={preset.label}
+					aria-label="Fond {preset.label}"
+				></button>
+			{/each}
+
+			<!-- Color picker custom -->
+			<button
+				class="bg-swatch bg-picker"
+				class:active={isCustomColor}
+				style={isCustomColor ? `background:${bgColor};` : ''}
+				onclick={() => colorPickerEl.click()}
+				title="Couleur personnalisée"
+				aria-label="Couleur personnalisée"
+			>
+				{#if !isCustomColor}
+					<svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2">
+						<circle cx="12" cy="12" r="10"/>
+						<path d="M12 2a10 10 0 0 1 0 20" fill="url(#rg)"/>
+					</svg>
+				{/if}
+			</button>
+			<input
+				bind:this={colorPickerEl}
+				type="color"
+				value={bgColor}
+				oninput={(e) => bgColor = (e.target as HTMLInputElement).value}
+				style="position:absolute; opacity:0; pointer-events:none; width:0; height:0;"
+				tabindex="-1"
+				aria-hidden="true"
+			/>
+		</div>
+	</div>
+
+	<div class="sep-v"></div>
+	<span class="hint">Molette: zoom · Espace+drag: pan</span>
 </div>
 
 <style>
@@ -184,4 +261,64 @@
 		padding: 0 6px;
 		white-space: nowrap;
 	}
+
+	.bg-section {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		padding: 4px 8px;
+	}
+
+	.bg-label {
+		font-size: 9px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: #374151;
+		line-height: 1;
+		text-align: center;
+	}
+
+	.bg-grid {
+		display: grid;
+		grid-template-columns: repeat(8, 14px);
+		gap: 3px;
+		position: relative;
+	}
+
+	.bg-swatch {
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		border: 1.5px solid rgba(255,255,255,0.10);
+		cursor: pointer;
+		transition: all 0.12s;
+		flex-shrink: 0;
+		padding: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.bg-swatch:hover {
+		transform: scale(1.25);
+		border-color: rgba(255,255,255,0.35);
+		z-index: 1;
+	}
+	.bg-swatch.active {
+		border-color: #818cf8;
+		box-shadow: 0 0 0 2px rgba(129,140,248,0.45);
+		transform: scale(1.2);
+		z-index: 1;
+	}
+
+	.bg-picker {
+		background: conic-gradient(
+			#f87171, #fb923c, #fbbf24, #4ade80,
+			#22d3ee, #818cf8, #e879f9, #f87171
+		);
+		border-color: rgba(255,255,255,0.2);
+		color: transparent;
+	}
+	.bg-picker:hover { border-color: rgba(255,255,255,0.5); }
+	.bg-picker.active { border-color: #818cf8; }
 </style>
