@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & Discussion
+    url: https://github.com/Pokled/Nodyx/discussions
+    about: Ask questions, share ideas, or just say hi
+  - name: Documentation
+    url: https://nodyx.dev
+    about: Check the docs before opening an issue — your answer might already be there
+  - name: Live Demo
+    url: https://nodyx.org
+    about: Try Nodyx live before reporting a bug

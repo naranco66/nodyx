@@ -1,0 +1,91 @@
+name: Bug Report
+description: Something is broken or not working as expected
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out as much as you can — it helps us fix things faster.
+
+  - type: input
+    id: version
+    attributes:
+      label: Nodyx version
+      description: Run `cat package.json | grep version` in nodyx-core/ or check the admin panel
+      placeholder: "e.g. 2.2.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of Nodyx is affected?
+      options:
+        - Frontend (SvelteKit)
+        - Backend API (Fastify)
+        - Voice / WebRTC
+        - Canvas
+        - Forum
+        - Chat
+        - Homepage Builder
+        - Installer (install.sh)
+        - P2P / Relay
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug
+      placeholder: "When I click X, Y happens instead of Z..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots / logs
+      description: If applicable, add screenshots or paste error logs (check browser console or `pm2 logs`)
+
+  - type: input
+    id: os
+    attributes:
+      label: Server OS
+      placeholder: "e.g. Ubuntu 24.04, Debian 12, Raspberry Pi OS"
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      placeholder: "e.g. Firefox 128, Chrome 126, Safari 17"
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that might help (reverse proxy config, Docker, NAT setup...)
