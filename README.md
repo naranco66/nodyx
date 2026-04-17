@@ -13,6 +13,7 @@ Forum + Chat + Voice + P2P + Canvas + Homepage Builder + Widget SDK — one serv
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![CI](https://github.com/Pokled/Nodyx/actions/workflows/ci.yml/badge.svg)](https://github.com/Pokled/Nodyx/actions/workflows/ci.yml)
 [![Stack](https://img.shields.io/badge/stack-Fastify%20%2B%20SvelteKit%20%2B%20PostgreSQL%20%2B%20Rust-green)](docs/en/ARCHITECTURE.md)
+[![Ko-fi](https://img.shields.io/badge/Support-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/Pokled)
 
 <sub>⭐ If Nodyx resonates with you, a star helps others find it — and keeps us going.</sub>
 
@@ -665,6 +666,16 @@ docs/ideas/  →  design thinking, UX proposals, new ideas
 ```
 
 The core (`nodyx-core/src/`) requires discussion first — open an Issue.
+
+---
+
+## Support Nodyx
+
+Nodyx is built by one developer, with no VC money and no strings attached. If the project is useful to you, consider supporting it:
+
+<a href="https://ko-fi.com/Pokled"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support on Ko-fi"/></a>
+
+Your support helps cover server costs and keeps Nodyx 100% free and open-source.
 
 ---
 
