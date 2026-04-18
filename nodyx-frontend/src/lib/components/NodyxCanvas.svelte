@@ -1733,27 +1733,30 @@
 		if (e.code === 'Space' && !overlayEdit) { spaceDown = true; e.preventDefault() }
 		if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey)  { e.preventDefault(); undo() }
 		if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); redo() }
-		if ((e.ctrlKey || e.metaKey) && e.key === 'd' && selectedIds.size > 0) {
+		if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+			// Bloquer le raccourci navigateur "Ajouter aux favoris" même sans sélection
 			e.preventDefault()
-			const ts = Date.now()
-			const newIds = new Set<string>()
-			for (const id of selectedIds) {
-				const el = cs.elements.get(id)
-				if (el && !el.deleted && !el.locked) {
-					const clone = {
-						...el,
-						id: crypto.randomUUID(),
-						ts,
-						x: (el.x ?? 0) + 20,
-						y: (el.y ?? 0) + 20,
+			if (selectedIds.size > 0) {
+				const ts = Date.now()
+				const newIds = new Set<string>()
+				for (const id of selectedIds) {
+					const el = cs.elements.get(id)
+					if (el && !el.deleted && !el.locked) {
+						const clone = {
+							...el,
+							id: crypto.randomUUID(),
+							ts,
+							x: (el.x ?? 0) + 20,
+							y: (el.y ?? 0) + 20,
+						}
+						cs.apply(clone)
+						pushUndo({ id: clone.id, before: null, after: clone })
+						socket?.emit('canvas:op', { boardId, op: clone })
+						newIds.add(clone.id)
 					}
-					cs.apply(clone)
-					pushUndo({ id: clone.id, before: null, after: clone })
-					socket?.emit('canvas:op', { boardId, op: clone })
-					newIds.add(clone.id)
 				}
+				if (newIds.size > 0) { selectedIds = newIds; render() }
 			}
-			if (newIds.size > 0) { selectedIds = newIds; render() }
 		}
 		if ((e.key === 'g' || e.key === 'G') && !overlayEdit) { showGrid = !showGrid; render() }
 		if (!e.ctrlKey && !e.metaKey && !overlayEdit && !frameNameOverlay) {
