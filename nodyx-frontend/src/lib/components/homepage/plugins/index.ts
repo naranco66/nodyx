@@ -9,8 +9,10 @@ import statsBar           from './stats-bar'
 import joinCard           from './join-card'
 import announcementBanner from './announcement-banner'
 import articleSlideshow   from './article-slideshow'
+import articlesShowcase   from './articles-showcase'
 import recentThreads      from './recent-threads'
 import socialLinksBar     from './social-links-bar'
+import twitchStream       from './twitch-stream'
 
 export const PLUGIN_REGISTRY: Record<string, WidgetPlugin> = {
 	[heroBanner.id]:         heroBanner,
@@ -18,8 +20,10 @@ export const PLUGIN_REGISTRY: Record<string, WidgetPlugin> = {
 	[joinCard.id]:           joinCard,
 	[announcementBanner.id]: announcementBanner,
 	[articleSlideshow.id]:   articleSlideshow,
+	[articlesShowcase.id]:   articlesShowcase,
 	[recentThreads.id]:      recentThreads,
 	[socialLinksBar.id]:     socialLinksBar,
+	[twitchStream.id]:       twitchStream,
 }
 
 // Liste ordonnée pour le catalogue admin (phases croissantes, puis alphabétique)

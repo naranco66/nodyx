@@ -188,6 +188,123 @@ export default async function instanceRoutes(app: FastifyInstance) {
     return reply.send({ threads: rows })
   })
 
+  // GET /api/v1/instance/threads/showcase
+  // Threads "éditorialisés" avec cover image + excerpt extraits du 1er post.
+  // Query params: category (slug ou UUID), pinned_only, limit (max 20), order (recent|popular|most_viewed)
+  app.get('/threads/showcase', { preHandler: [rateLimit] }, async (request, reply) => {
+    const communityId = await getCommunityId()
+    if (!communityId) return reply.send({ threads: [] })
+
+    const query = request.query as {
+      category?:    string
+      pinned_only?: string
+      limit?:       string
+      order?:       string
+    }
+
+    const limit       = Math.min(20, Math.max(1, parseInt(query.limit ?? '6', 10) || 6))
+    const pinnedOnly  = query.pinned_only === 'true' || query.pinned_only === '1'
+    const orderKey    = ['recent', 'popular', 'most_viewed'].includes(query.order ?? '')
+      ? (query.order as string)
+      : 'recent'
+    const categoryRaw = (query.category ?? '').trim()
+
+    // Cache 30s — les articles changent mais pas toutes les secondes
+    const cacheKey = `showcase:${communityId}:${categoryRaw}:${pinnedOnly}:${limit}:${orderKey}`
+    const cached = await redis.get(cacheKey)
+    if (cached) {
+      reply.header('x-cache', 'HIT')
+      return reply.send(JSON.parse(cached))
+    }
+
+    const conditions: string[] = ['c.community_id = $1']
+    const params: unknown[] = [communityId]
+
+    if (categoryRaw) {
+      conditions.push(`(c.id::text = $${params.length + 1} OR c.slug = $${params.length + 1})`)
+      params.push(categoryRaw)
+    }
+    if (pinnedOnly) conditions.push('t.is_pinned = true')
+
+    const orderClause =
+      orderKey === 'popular'     ? 'post_count DESC NULLS LAST, t.created_at DESC' :
+      orderKey === 'most_viewed' ? 't.views DESC, t.created_at DESC' :
+      'COALESCE((SELECT MAX(p3.created_at) FROM posts p3 WHERE p3.thread_id = t.id), t.created_at) DESC'
+
+    params.push(limit)
+    const limitIdx = params.length
+
+    const { rows } = await db.query(
+      `SELECT
+         t.id, t.slug, t.title, t.views, t.is_pinned, t.is_locked, t.created_at,
+         c.id   AS category_id,
+         c.slug AS category_slug,
+         c.name AS category_name,
+         u.username AS author_username,
+         u.avatar   AS author_avatar,
+         (SELECT p.content FROM posts p
+            WHERE p.thread_id = t.id
+            ORDER BY p.created_at ASC LIMIT 1) AS first_post_content,
+         (SELECT COUNT(*)::int FROM posts p WHERE p.thread_id = t.id) AS post_count
+       FROM threads t
+       JOIN categories c ON c.id = t.category_id
+       JOIN users      u ON u.id = t.author_id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY ${orderClause}
+       LIMIT $${limitIdx}`,
+      params
+    )
+
+    // Extraction cover image + excerpt depuis le HTML du 1er post
+    const IMG_RE = /<img[^>]+src=["']([^"']+)["']/i
+    const TAG_RE = /<[^>]+>/g
+    const WHITESPACE_RE = /\s+/g
+    function stripHtml(html: string): string {
+      return html
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(TAG_RE, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g,  '&')
+        .replace(/&lt;/g,   '<')
+        .replace(/&gt;/g,   '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g,  "'")
+        .replace(WHITESPACE_RE, ' ')
+        .trim()
+    }
+
+    const threads = rows.map(r => {
+      const content: string = r.first_post_content ?? ''
+      const imgMatch = content.match(IMG_RE)
+      const cover    = imgMatch ? imgMatch[1] : null
+      const text     = stripHtml(content)
+      const excerpt  = text.length > 240 ? text.slice(0, 240).trimEnd() + '…' : text
+
+      return {
+        id:              r.id,
+        slug:            r.slug,
+        title:           r.title,
+        views:           r.views,
+        is_pinned:       r.is_pinned,
+        is_locked:       r.is_locked,
+        created_at:      r.created_at,
+        category_id:     r.category_id,
+        category_slug:   r.category_slug,
+        category_name:   r.category_name,
+        author_username: r.author_username,
+        author_avatar:   r.author_avatar,
+        post_count:      r.post_count,
+        cover_url:       cover,
+        excerpt,
+      }
+    })
+
+    const response = { threads }
+    await redis.set(cacheKey, JSON.stringify(response), 'EX', 30)
+    reply.header('x-cache', 'MISS')
+    return reply.send(response)
+  })
+
   // GET /api/v1/instance/tags
   // Returns all tags for this community (public)
   app.get('/tags', { preHandler: [rateLimit] }, async (_request, reply) => {
