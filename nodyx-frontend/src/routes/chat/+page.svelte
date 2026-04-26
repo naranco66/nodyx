@@ -1312,7 +1312,7 @@
 			<!-- Scroll to bottom button -->
 			{#if !isAtBottom}
 				<button
-					onclick={scrollToBottom}
+					onclick={() => scrollToBottom()}
 					class="absolute bottom-3 right-4 z-10 flex items-center gap-2 pl-3 pr-2.5 py-1.5 transition-all duration-200 scroll-bottom-btn"
 					style="background: rgba(13,13,20,0.95); border: 1px solid rgba(124,58,237,0.4); box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);"
 					transition:fade={{ duration: 120 }}
