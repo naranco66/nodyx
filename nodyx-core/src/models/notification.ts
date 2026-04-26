@@ -1,6 +1,6 @@
 import { db } from '../config/database'
 
-export type NotificationType = 'thread_reply' | 'post_thanks' | 'mention'
+export type NotificationType = 'thread_reply' | 'post_thanks' | 'mention' | 'wave'
 
 export interface Notification {
   id:         string

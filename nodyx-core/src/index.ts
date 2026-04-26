@@ -28,6 +28,7 @@ import honeypotRoutes        from './routes/honeypot'
 import totpRoutes            from './routes/totp'
 import wikiRoutes            from './routes/wiki'
 import socialRoutes          from './routes/social'
+import memberRoutes          from './routes/members'
 import { widgetStoreRoutes } from './routes/widgetStore'
 import { widgetDemoRoutes }  from './routes/widgetDemo'
 import canvasRoutes          from './routes/canvas'
@@ -146,6 +147,7 @@ server.register(honeypotRoutes,       { prefix: '/api/v1' })
 server.register(totpRoutes,           { prefix: '/api/v1/auth/totp' })
 server.register(wikiRoutes,           { prefix: '/api/v1/wiki' })
 server.register(socialRoutes,         { prefix: '/api/v1/social' })
+server.register(memberRoutes,         { prefix: '/api/v1/members' })
 server.register(widgetStoreRoutes,    { prefix: '/api/v1' })
 server.register(widgetDemoRoutes,     { prefix: '/api/v1' })
 server.register(canvasRoutes,         { prefix: '/api/v1/canvas' })
