@@ -679,9 +679,19 @@ Every external contribution earns a star. Every Star goes on [our Hall of Fame](
 
 <a href="https://github.com/Pranto2003"><img src="https://github.com/Pranto2003.png?size=80" width="60" height="60" align="left" style="border-radius:50%; margin-right:12px;" alt="Pranto"/></a>
 
-**[Pranto Goswamee](https://github.com/Pranto2003)** — 🌟 × 1 — added `Ctrl/Cmd + D` canvas duplication ([PR #11](https://github.com/Pokled/nodyx/pull/11)).
+**[Pranto Goswamee](https://github.com/Pranto2003)** : 🌟 × 1, added `Ctrl/Cmd + D` canvas duplication ([PR #11](https://github.com/Pokled/nodyx/pull/11)).
 
 *First external contribution to Nodyx ever. Thank you 🙏*
+
+<br/>
+
+### 🎯 First Regular
+
+<a href="https://github.com/waazaa-fr"><img src="https://github.com/waazaa-fr.png?size=80" width="60" height="60" align="left" style="border-radius:50%; margin-right:12px;" alt="waazaa-fr"/></a>
+
+**[waazaa-fr](https://github.com/waazaa-fr)** : 🌟 × 2, found and reported two installer bugs back to back ([#14](https://github.com/Pokled/nodyx/issues/14), [#15](https://github.com/Pokled/nodyx/issues/15)), both fixed within hours.
+
+*Reliable bug hunters keep the installer honest. Merci waazaa 🙏*
 
 <br/>
 

@@ -27,7 +27,29 @@ One merged PR = one star. Typos count. Translations count. Bug reports that turn
 
 ## Hall of Fame
 
-### 🌟 Rookies — First contribution merged
+### 🌟🌟 Regulars : 2 to 4 stars
+
+<table>
+  <tr>
+    <td align="center" width="200">
+      <a href="https://github.com/waazaa-fr">
+        <img src="https://github.com/waazaa-fr.png?size=120" width="120" height="120" style="border-radius:50%;" alt="waazaa-fr"/>
+        <br/>
+        <sub><b>waazaa-fr</b></sub>
+      </a>
+      <br/>
+      <sub>🌟 × 2</sub>
+      <br/>
+      <sub><a href="https://github.com/Pokled/nodyx/issues/14">#14</a> · <a href="https://github.com/Pokled/nodyx/issues/15">#15</a></sub>
+      <br/>
+      <sub><em>installer bug hunter, hat trick edition</em></sub>
+      <br/>
+      <sub><strong>First Regular 🎯</strong></sub>
+    </td>
+  </tr>
+</table>
+
+### 🌟 Rookies : first contribution merged
 
 <table>
   <tr>
@@ -53,8 +75,10 @@ One merged PR = one star. Typos count. Translations count. Bug reports that turn
 
 ## Contribution log
 
-| Contributor | Contribution | Type | PR | Polish applied | Date |
+| Contributor | Contribution | Type | Issue / PR | Fix / polish | Date |
 |---|---|---|---|---|---|
+| [@waazaa-fr](https://github.com/waazaa-fr) | Reported broken `nodyx-turn` download URL in installer | `bug(installer)` | [#14](https://github.com/Pokled/nodyx/issues/14) | [`c24a851`](https://github.com/Pokled/nodyx/commit/c24a851) | 2026-04-26 |
+| [@waazaa-fr](https://github.com/waazaa-fr) | Reported `/opt/nodyx` parent dir not auto-created in installer | `bug(installer)` | [#15](https://github.com/Pokled/nodyx/issues/15) | [`4c0ab74`](https://github.com/Pokled/nodyx/commit/4c0ab74) | 2026-04-26 |
 | [@Pranto2003](https://github.com/Pranto2003) | Ctrl/Cmd + D to duplicate selected canvas elements | `feat(canvas)` | [#11](https://github.com/Pokled/nodyx/pull/11) | [`d19682f`](https://github.com/Pokled/nodyx/commit/d19682f) · [`cbecb2f`](https://github.com/Pokled/nodyx/commit/cbecb2f) · [`de84424`](https://github.com/Pokled/nodyx/commit/de84424) | 2026-04-18 |
 
 ---
