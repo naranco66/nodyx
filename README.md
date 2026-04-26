@@ -695,6 +695,16 @@ Every external contribution earns a star. Every Star goes on [our Hall of Fame](
 
 <br/>
 
+### 🇪🇸 Hablas español? Now Nodyx does too
+
+<a href="https://github.com/naranco66"><img src="https://github.com/naranco66.png?size=80" width="60" height="60" align="left" style="border-radius:50%; margin-right:12px;" alt="naranco66"/></a>
+
+**[naranco66](https://github.com/naranco66)** : 🌟 × 1, brought Spanish (es-ES) to Nodyx via [PR #16](https://github.com/Pokled/nodyx/pull/16) : 719 strings, full key + placeholder parity, native review.
+
+*Third locale, third bridge to the world. Gracias naranco 🙏*
+
+<br/>
+
 👉 **[See all contributors →](CONTRIBUTORS.md)**
 
 ---

@@ -51,6 +51,7 @@ function getInitialLocale(): Locale {
   if (nav === 'es') return 'es'
   return 'en'
 }
+
 function createLocaleStore() {
   const { subscribe, set } = writable<Locale>('fr')
 
