@@ -1,8 +1,21 @@
 <script lang="ts">
+  interface SearchResult {
+    slug:          string
+    title:         string
+    excerpt:       string
+    headingText?:  string
+    headingId?:    string
+    headingLevel?: number
+  }
+
   let searchOpen = $state(false)
   let theme      = $state<'light' | 'dark'>('light')
-  let results    = $state<Array<{ slug: string; title: string; excerpt: string }>>([])
+  let results    = $state<SearchResult[]>([])
   let query      = $state('')
+
+  function resultHref(r: SearchResult): string {
+    return r.headingId ? `/${r.slug}#${r.headingId}` : `/${r.slug}`
+  }
 
   function toggleTheme() {
     theme = theme === 'light' ? 'dark' : 'light'
@@ -107,6 +120,7 @@
           autofocus
           oninput={async (e) => {
             const q = (e.target as HTMLInputElement).value.trim()
+            query = q
             if (q.length < 2) { results = []; return }
             const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`)
             results = await res.json()
@@ -118,8 +132,14 @@
         <ul class="search-results" role="listbox">
           {#each results as r}
             <li role="option">
-              <a href="/{r.slug}" class="search-result-item" onclick={closeSearch}>
-                <span class="search-result-title">{r.title}</span>
+              <a href={resultHref(r)} class="search-result-item" onclick={closeSearch}>
+                <span class="search-result-title">
+                  {r.title}
+                  {#if r.headingText}
+                    <span class="search-result-sep" aria-hidden="true">›</span>
+                    <span class="search-result-heading" data-level={r.headingLevel ?? 2}>{r.headingText}</span>
+                  {/if}
+                </span>
                 <span class="search-result-excerpt">{r.excerpt}</span>
               </a>
             </li>
@@ -313,6 +333,9 @@ kbd {
 
 .search-result-title  { font-size: 0.875rem; font-weight: 500; color: var(--text); }
 .search-result-excerpt { font-size: 0.78rem; color: var(--text-muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.search-result-sep     { color: var(--text-muted); margin: 0 0.35rem; opacity: 0.7; }
+.search-result-heading { color: var(--accent); font-weight: 500; }
+.search-result-heading[data-level="3"] { font-weight: 400; opacity: 0.85; }
 
 .search-empty { padding: 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.875rem; }
 </style>

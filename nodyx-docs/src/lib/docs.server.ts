@@ -103,14 +103,34 @@ function extractHeadings(md: string): Heading[] {
 }
 
 // ── Search index ──────────────────────────────────────────────────────────────
+// Each entry is either a whole page or a single H2/H3 section. Section entries
+// carry their anchor id so search results can deep-link into the right heading.
 
 export interface SearchEntry {
-  slug:    string
-  title:   string
-  excerpt: string
+  slug:          string
+  title:         string         // page title
+  excerpt:       string         // body text for matching
+  headingText?:  string         // section heading text (undefined for whole-page entries)
+  headingId?:    string         // anchor id for deep link
+  headingLevel?: number         // 2 | 3
 }
 
 let _searchIndex: SearchEntry[] | null = null
+
+function stripMarkdown(s: string): string {
+  return s
+    .replace(/```[\s\S]*?```/g, ' ')                       // fenced code blocks
+    .replace(/`[^`]*`/g, ' ')                              // inline code
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')                 // images
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')               // links → keep label
+    .replace(/^:::.*$/gm, ' ')                             // callout markers
+    .replace(/\*\*|__|\*|_/g, '')                          // emphasis
+    .replace(/^>\s?/gm, '')                                // blockquotes
+    .replace(/^[-*+]\s+/gm, '')                            // list bullets
+    .replace(/<[^>]+>/g, ' ')                              // raw html
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 export async function buildSearchIndex(pages: Array<{ slug: string; title: string }>): Promise<SearchEntry[]> {
   if (_searchIndex) return _searchIndex
@@ -120,13 +140,39 @@ export async function buildSearchIndex(pages: Array<{ slug: string; title: strin
     try {
       const raw = await readDocFile(page.slug)
       if (!raw) continue
-      const plain = raw
-        .replace(/^#{1,6}\s+/gm, '')
-        .replace(/\*\*|__|\*|_|`{1,3}[^`]*`{1,3}|\[([^\]]*)\]\([^)]*\)/g, '$1')
-        .replace(/:::.*?\n/g, '')
-        .replace(/\n+/g, ' ')
-        .trim()
-      entries.push({ slug: page.slug, title: page.title, excerpt: plain.slice(0, 500) })
+
+      // Whole-page entry — first 500 chars of plain text, anchored at top of page
+      const wholePlain = stripMarkdown(raw.replace(/^#{1,6}\s+/gm, ''))
+      entries.push({ slug: page.slug, title: page.title, excerpt: wholePlain.slice(0, 500) })
+
+      // Section entries — split on H2/H3 boundaries and index each independently
+      const sectionRe = /^(#{2,3})\s+(.+?)\s*$/gm
+      const matches: Array<{ level: number; text: string; start: number; end: number }> = []
+      let m: RegExpExecArray | null
+      while ((m = sectionRe.exec(raw)) !== null) {
+        matches.push({ level: m[1].length, text: m[2], start: m.index, end: m.index + m[0].length })
+      }
+
+      for (let i = 0; i < matches.length; i++) {
+        const cur  = matches[i]
+        const next = matches[i + 1]
+        const body = raw.slice(cur.end, next ? next.start : raw.length)
+        const headingClean = cur.text
+          .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+          .replace(/[*_`]/g, '')
+          .trim()
+        const bodyPlain = stripMarkdown(body)
+        // Prepend the heading text into the excerpt so heading-only queries match
+        const excerpt = (headingClean + ' — ' + bodyPlain).slice(0, 600)
+        entries.push({
+          slug:         page.slug,
+          title:        page.title,
+          excerpt,
+          headingText:  headingClean,
+          headingId:    slugifyHeading(cur.text),
+          headingLevel: cur.level,
+        })
+      }
     } catch { /* skip */ }
   }
 
