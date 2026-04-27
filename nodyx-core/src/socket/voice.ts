@@ -1,6 +1,23 @@
 import { Server, Socket } from 'socket.io'
 import * as crypto from 'crypto'
 import { checkRateLimit } from './rateLimiter'
+import { db } from '../config/database'
+
+type CommunityRole = 'owner' | 'admin' | 'moderator' | 'member'
+const MOD_ROLES: ReadonlyArray<CommunityRole> = ['owner', 'admin', 'moderator']
+
+async function getCommunityRoleForChannel(
+  channelId: string, userId: string,
+): Promise<CommunityRole | null> {
+  const { rows } = await db.query<{ role: CommunityRole }>(
+    `SELECT cm.role
+       FROM community_members cm
+       JOIN channels c ON c.community_id = cm.community_id
+      WHERE c.id = $1 AND cm.user_id = $2`,
+    [channelId, userId],
+  )
+  return rows[0]?.role ?? null
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 function isUuid(v: unknown): v is string { return typeof v === 'string' && UUID_RE.test(v) }
@@ -173,6 +190,53 @@ export function registerVoiceHandlers(socket: Socket, server: Server): void {
     freeSeat(channelId, socket.id)
     server.to(room).emit('voice:peer_left', { channelId, socketId: socket.id })
     await broadcastVoiceChannelUpdate(server, channelId)
+  })
+
+  // ── voice:kick — moderator action ─────────────────────────────────────────
+  // Forces a peer out of a voice channel. Permitted to community
+  // owner / admin / moderator. Moderators cannot kick admins or owners.
+  socket.on('voice:kick', async (
+    { channelId, targetSocketId }: { channelId: string; targetSocketId: string },
+  ) => {
+    if (checkRateLimit(userId, 'voice:kick')) return
+    if (!isUuid(channelId) || typeof targetSocketId !== 'string') return
+
+    const room = voiceRoom(channelId)
+    if (!socket.rooms.has(room)) return
+
+    const actorRole = await getCommunityRoleForChannel(channelId, userId)
+    if (!actorRole || !MOD_ROLES.includes(actorRole)) return
+
+    const sockets = await server.in(room).fetchSockets()
+    const target  = sockets.find(s => s.id === targetSocketId)
+    if (!target) return
+
+    const targetUserId   = target.data.userId   as string
+    const targetUsername = target.data.username as string
+    if (targetUserId === userId) return
+
+    const targetRole = await getCommunityRoleForChannel(channelId, targetUserId)
+    // Owners are untouchable.
+    if (targetRole === 'owner') return
+    // Moderators cannot kick admins; only admin/owner can.
+    if (actorRole === 'moderator' && targetRole === 'admin') return
+
+    target.emit('voice:kicked', { channelId, by: username })
+    freeSeat(channelId, target.id)
+    target.leave(room)
+    server.to(room).emit('voice:peer_left', { channelId, socketId: target.id })
+    await broadcastVoiceChannelUpdate(server, channelId)
+
+    try {
+      await db.query(
+        `INSERT INTO admin_audit_log
+           (actor_id, actor_username, action, target_type, target_id, target_label, metadata)
+         VALUES ($1, $2, 'voice_kick', 'user', $3, $4, $5)`,
+        [userId, username, targetUserId, targetUsername, JSON.stringify({ channelId })],
+      )
+    } catch {
+      // audit failure must never block the moderation action
+    }
   })
 
   // ── WebRTC signaling — forwarded to target socket only ───────────────────

@@ -1,8 +1,8 @@
 <script lang='ts'>
     import {
         voiceStore, leaveVoice, toggleMute, toggleDeafen, togglePTTMode,
-        startPTT, stopPTT, inputLevel, setPeerVolume,
-        peerStatsStore, getQuality, voiceFullStore,
+        startPTT, stopPTT, inputLevel, setPeerVolume, kickPeer,
+        peerStatsStore, getQuality, voiceFullStore, voiceKickedStore,
         startScreenShare, stopScreenShare, screenShareStore, remoteScreenStore,
         type VoicePeer, type PeerStats, type NetQuality,
     } from '$lib/voice'
@@ -13,6 +13,20 @@
     import { onMount } from 'svelte'
     import { t } from '$lib/i18n'
     import { voicePanelTarget } from '$lib/voicePanel'
+    import { page } from '$app/stores'
+
+    const userRole = $derived(($page.data as any)?.user?.role as string | undefined)
+    const canModerate = $derived(
+        userRole === 'owner' || userRole === 'admin' || userRole === 'moderator'
+    )
+
+    function confirmKick(peer: VoicePeer): void {
+        const message = tFn('voice.kick_confirm', { username: peer.username })
+        if (typeof window !== 'undefined' && window.confirm(message)) {
+            kickPeer(peer.socketId)
+            closePanel()
+        }
+    }
 
     let { mode = 'float', extraClass = '' }: { mode?: 'float' | 'sidebar'; extraClass?: string } = $props()
 
@@ -173,6 +187,18 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
         </svg>
         {tFn('voice.channel_full', { max: String($voiceFullStore.max) })}
+    </div>
+{/if}
+
+{#if $voiceKickedStore && mode === 'float'}
+    <div class="fixed bottom-20 left-1/2 -translate-x-1/2 z-50
+                flex items-center gap-2.5 px-4 py-3 rounded-xl
+                bg-red-900/90 border border-red-700/60 backdrop-blur-sm shadow-xl
+                text-sm text-red-200 font-medium pointer-events-none">
+        <svg class="w-4 h-4 shrink-0 text-red-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728"/>
+        </svg>
+        {tFn('voice.kicked_toast', { by: $voiceKickedStore.by })}
     </div>
 {/if}
 
@@ -466,6 +492,26 @@
                     <span class='text-[9px] text-gray-700 font-medium uppercase tracking-wider'>{tFn('voice.coming_soon')}</span>
                 </button>
             </div>
+
+            {#if canModerate}
+                <!-- Modération -->
+                <div class='px-3 pb-3'>
+                    <button
+                        type='button'
+                        onclick={() => confirmKick(selPeer)}
+                        class='w-full flex items-center justify-center gap-1.5 py-2
+                               rounded-lg bg-red-900/40 hover:bg-red-700/70
+                               text-red-300 hover:text-white text-xs font-bold
+                               transition-all duration-200 transform hover:scale-105 active:scale-95
+                               border border-red-800/60 hover:border-red-500/70
+                               shadow-lg shadow-red-900/30'>
+                        <svg xmlns='http://www.w3.org/2000/svg' class='w-3.5 h-3.5' fill='none' viewBox='0 0 24 24' stroke='currentColor' stroke-width='2'>
+                            <path stroke-linecap='round' stroke-linejoin='round' d='M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z'/>
+                        </svg>
+                        {tFn('voice.kick_btn')}
+                    </button>
+                </div>
+            {/if}
         </div>
     {/if}
 

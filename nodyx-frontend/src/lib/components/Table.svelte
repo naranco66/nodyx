@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { voiceStore, setPeerVolume, inputLevel, peerStatsStore, getQuality } from '$lib/voice'
+	import { voiceStore, setPeerVolume, inputLevel, peerStatsStore, getQuality, kickPeer } from '$lib/voice'
 	import { jukeboxStore, initJukebox, cleanupJukebox, mountYTPlayer, jukeboxLoad } from '$lib/jukebox'
 	import { goto } from '$app/navigation'
 	import { PUBLIC_API_URL } from '$env/static/public'
+	import { page } from '$app/stores'
 	import type { Socket } from 'socket.io-client'
 
 	interface Props {
@@ -120,6 +121,18 @@
 		menuY = Math.min(rect.top, window.innerHeight - 160)
 	}
 	function closeMenu() { menuPlayer = null }
+
+	const userRole = $derived(($page.data as any)?.user?.role as string | undefined)
+	const canModerate = $derived(
+		userRole === 'owner' || userRole === 'admin' || userRole === 'moderator'
+	)
+
+	function kickPlayer(p: Player) {
+		if (!p.socketId) return
+		closeMenu()
+		const ok = window.confirm(`Exclure ${p.username} du salon vocal ?`)
+		if (ok) kickPeer(p.socketId)
+	}
 
 	async function whisperPeer(p: Player) {
 		closeMenu()
@@ -534,6 +547,19 @@
 					{/if}
 				</button>
 			</div>
+
+			{#if canModerate && !mp.isMe}
+				<div class="mt-0.5 pt-0.5" style="border-top: 1px solid rgba(255,255,255,0.05);">
+					<button onclick={() => kickPlayer(mp)}
+						class="w-full text-left px-3 py-2 text-xs flex items-center gap-2.5 hover:bg-red-500/10 transition-colors"
+						style="color: #f87171;">
+						<svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/>
+						</svg>
+						Exclure du salon
+					</button>
+				</div>
+			{/if}
 		</div>
 	{/if}
 

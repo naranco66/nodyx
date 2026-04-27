@@ -103,6 +103,10 @@ export const peerStatsStore = writable<Map<string, PeerStats>>(new Map())
 // Set briefly when the server rejects a voice:join (channel full)
 export const voiceFullStore = writable<{ channelId: string; max: number } | null>(null)
 
+// Set when a moderator kicks the local user out of a voice channel.
+// UI consumers display a toast then clear the store.
+export const voiceKickedStore = writable<{ channelId: string; by: string } | null>(null)
+
 // ── Screen share stores ────────────────────────────────────────────
 export const screenShareStore  = writable<boolean>(false)
 export const localScreenStore  = writable<MediaStream | null>(null)
@@ -939,6 +943,7 @@ export async function joinVoice(channelId: string, socket: Socket): Promise<void
   socket.on('voice:speaking',    onSpeaking)
   socket.on('voice:stats',       onPeerStats)
   socket.on('voice:full',        onVoiceFull)
+  socket.on('voice:kicked',      onKicked)
 
   _onSocketReconnect = () => {
     console.debug('[voice] Socket reconnected — rejoining voice room')
@@ -973,6 +978,7 @@ export function leaveVoice(): void {
     _socket.off('voice:speaking',    onSpeaking)
     _socket.off('voice:stats',       onPeerStats)
     _socket.off('voice:full',        onVoiceFull)
+    _socket.off('voice:kicked',      onKicked)
     if (_onSocketReconnect) {
       _socket.off('connect', _onSocketReconnect)
       _onSocketReconnect = null
@@ -1015,6 +1021,14 @@ export function leaveVoice(): void {
     active: false, channelId: null, muted: false, deafened: false,
     pttMode: false, peers: [], mySpeaking: false, mySeatIndex: null,
   })
+}
+
+// Moderator action: ask the server to kick a peer out of the current voice channel.
+// Authorization is enforced server-side; the client merely emits.
+export function kickPeer(targetSocketId: string): void {
+  const { channelId } = get(voiceStore)
+  if (!channelId || !_socket) return
+  _socket.emit('voice:kick', { channelId, targetSocketId })
 }
 
 export function toggleMute(): void {
@@ -1304,4 +1318,11 @@ function onVoiceFull({ channelId, max }: { channelId: string; max: number }): vo
   leaveVoice()
   // Auto-clear the error after 5s
   setTimeout(() => voiceFullStore.set(null), 5000)
+}
+
+function onKicked({ channelId, by }: { channelId: string; by: string }): void {
+  voiceKickedStore.set({ channelId, by })
+  leaveVoice()
+  // Auto-clear the toast after 6s
+  setTimeout(() => voiceKickedStore.set(null), 6000)
 }
