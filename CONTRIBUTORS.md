@@ -68,11 +68,11 @@ One merged PR = one star. Typos count. Translations count. Bug reports that turn
         <sub><b>forke24x7</b></sub>
       </a>
       <br/>
-      <sub>🌟 × 2</sub>
+      <sub>🌟 × 3</sub>
       <br/>
-      <sub><a href="https://github.com/Pokled/nodyx/issues/5">#5</a> · <a href="https://github.com/Pokled/nodyx/issues/18">#18</a></sub>
+      <sub><a href="https://github.com/Pokled/nodyx/issues/5">#5</a> · <a href="https://github.com/Pokled/nodyx/issues/18">#18</a> · <a href="https://github.com/Pokled/nodyx/issues/21">#21</a></sub>
       <br/>
-      <sub><em>German (de) translation + Pangolin feature request</em></sub>
+      <sub><em>German translation + Pangolin support + frontend build regression hunter</em></sub>
       <br/>
       <sub><strong>First German contributor 🇩🇪</strong></sub>
     </td>
@@ -109,6 +109,7 @@ One merged PR = one star. Typos count. Translations count. Bug reports that turn
 |---|---|---|---|---|---|
 | [@waazaa-fr](https://github.com/waazaa-fr) | Reported broken `nodyx-turn` download URL in installer | `bug(installer)` | [#14](https://github.com/Pokled/nodyx/issues/14) | [`c24a851`](https://github.com/Pokled/nodyx/commit/c24a851) | 2026-04-26 |
 | [@waazaa-fr](https://github.com/waazaa-fr) | Reported `/opt/nodyx` parent dir not auto-created in installer | `bug(installer)` | [#15](https://github.com/Pokled/nodyx/issues/15) | [`4c0ab74`](https://github.com/Pokled/nodyx/commit/4c0ab74) | 2026-04-26 |
+| [@forke24x7](https://github.com/forke24x7) | Caught regression in `install_tunnel.sh` : missing `PUBLIC_TURN_*` vars broke the SvelteKit build | `bug(installer)` | [#21](https://github.com/Pokled/nodyx/issues/21) | [`cbc9e6b`](https://github.com/Pokled/nodyx/commit/cbc9e6b) | 2026-04-27 |
 | [@forke24x7](https://github.com/forke24x7) | German (de) translation : 741 strings, hand-reviewed by a native German speaker, attached on issue #5 | `feat(i18n)` | [#5](https://github.com/Pokled/nodyx/issues/5) | _integrated by maintainer_ | 2026-04-27 |
 | [@forke24x7](https://github.com/forke24x7) | Pangolin / alternative-tunnel support requested | `feat(installer)` | [#18](https://github.com/Pokled/nodyx/issues/18) | [`dfa8eca`](https://github.com/Pokled/nodyx/commit/dfa8eca) | 2026-04-26 |
 | [@naranco66](https://github.com/naranco66) | Native Spanish review of community pulse strings (7 keys, dropped 2 duplicate keys) | `i18n(es)` | [#19](https://github.com/Pokled/nodyx/pull/19) | [`a9a90b3`](https://github.com/Pokled/nodyx/commit/a9a90b3) | 2026-04-27 |
