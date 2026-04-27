@@ -815,7 +815,7 @@ apt-get install -y -q \
   openssl ufw build-essential \
   postgresql postgresql-contrib \
   redis-server \
-  fonts-dejavu \
+  fonts-dejavu-core \
   >/dev/null 2>&1
 ok "System packages installed"
 
