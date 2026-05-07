@@ -407,8 +407,26 @@ export function initJukebox(socket: Socket, channelId: string, username: string)
     if (s.track && _socket) _socket.emit('jukebox:update', { channelId, state: s })
   })
 
-  // Ask peers for current state on join
-  socket.emit('jukebox:request_sync', channelId)
+  // Ask peers for the current jukebox state — but with retries.
+  //
+  // The server gates `jukebox:request_sync` behind `socket.rooms.has(voiceRoom)`,
+  // and that membership only lands a few hundred ms AFTER the client's
+  // `voice:join` is acked. A single emit at t=0 lands before the server has us
+  // in the room, gets dropped silently, and the joiner ends up with an empty
+  // store while music is happily playing for everyone else.
+  //
+  // We retry up to 6 times spaced 700ms apart (≈4 s window), stopping as soon
+  // as we receive a track via the `jukebox:update` listener above.
+  let tries = 0
+  const trySync = () => {
+    if (tries >= 6) return
+    if (!_socket || !_channelId) return
+    if (get(jukeboxStore).track) return  // already in sync, stop
+    tries++
+    _socket.emit('jukebox:request_sync', _channelId)
+    setTimeout(trySync, 700)
+  }
+  setTimeout(trySync, 150)
 }
 
 export function cleanupJukebox(socket: Socket): void {
