@@ -9,7 +9,7 @@
 **The self-hosted community platform you actually own.**  
 Forum + Chat + Voice + P2P + Canvas + Homepage Builder + Widget SDK — one server, one community, forever.
 
-[![Version](https://img.shields.io/badge/version-v2.3.0-7c3aed)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v2.4.0-7c3aed)](CHANGELOG.md)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![CI](https://github.com/Pokled/Nodyx/actions/workflows/ci.yml/badge.svg)](https://github.com/Pokled/Nodyx/actions/workflows/ci.yml)
 [![Stack](https://img.shields.io/badge/stack-Fastify%20%2B%20SvelteKit%20%2B%20PostgreSQL%20%2B%20Rust-green)](docs/en/ARCHITECTURE.md)
@@ -579,6 +579,28 @@ Each Nodyx instance runs a **Gossip Protocol** scheduler that periodically pings
 </details>
 
 <details open>
+<summary><b>v2.4 — Backup System + Live Maintenance Mode 💾</b></summary>
+
+| Feature | Version |
+|---|---|
+| **Backup admin UI** — `/admin/backups` page with storage indicator, table of archives, per-row Download / Verify / Restore / Delete actions, sidebar shortcut 💾 | v2.4 |
+| **Create backup** — `pg_dump --format=custom --compress=9` + `tar -czf`, SHA-256 checksum, manifest with stats. Toggle to include or exclude uploaded files | v2.4 |
+| **Restore with safety net** — atomic `pg_restore --single-transaction --clean --if-exists`, automatic pre-restore snapshot protected for 24h (rollback in one click), type-to-confirm slug + 5s countdown, ordered list of steps shown in the modal | v2.4 |
+| **Dry-run** — verify checksum + format-version compat + tar structure without touching DB or filesystem. Result inline (✓ restorable / ✗ exact error). Audited as `metadata.dry_run = true` | v2.4 |
+| **Verify** — recompute SHA-256 + check archive structure on demand, badge visible on the row | v2.4 |
+| **Audit log** — every sensitive action (create / restore / download / delete / verify / settings) logged with user + IP + user-agent. Standalone `/admin/backups/audit` page, indexed for post-compromise forensics | v2.4 |
+| **Reindex** — `POST /admin/backups/reindex` scans the directory, parses each `.tar.gz` manifest in-memory, INSERTs missing rows. Recovery for orphan archives | v2.4 |
+| **Live Maintenance Mode** — Redis flag `nodyx:maintenance:meta` set during create/restore. Global `onRequest` hook returns 503 on writes (registration, posts, uploads) with a structured payload. Reads, admin endpoints and Socket.IO stay open. Auto-clear with safety belt (30 min create, 60 min restore) | v2.4 |
+| **Maintenance banner** — sticky amber banner at the top of every page when active, polled every 15 s. *"🛠️ Sauvegarde en cours, les nouvelles inscriptions et publications sont temporairement désactivées"* | v2.4 |
+| **System tables excluded from dump** — `backups`, `backup_audit_log`, `backup_settings`, `schema_migrations` are never inside an archive, so a restore can't wipe its own safety net. Discovered live during the first prod test (see [The Yannick Story](CHANGELOG.md#the-yannick-story) in CHANGELOG) | v2.4 |
+| **Redis lock with Lua release** — `backup:lock` (NX EX 3600) prevents concurrent backups or backup-during-restore. Released atomically via Lua so a process can never delete a lock owned by someone else | v2.4 |
+| **`path.basename()` on download** — defuses path traversal attempts on the filename param | v2.4 |
+| **13 vitest tests** — service-level invariants (path traversal, retention clamps, format-version refusal, protected-bypass), 194 total, 0 regression | v2.4 |
+| **Spec promoted** to `docs/specs/014-backup-system/SPEC.MD`, indexed by nodyx.dev | v2.4 |
+
+</details>
+
+<details>
 <summary><b>v2.3 — Universal Media Player + Builder Catalog Fusion 🎬</b></summary>
 
 | Feature | Version |

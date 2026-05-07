@@ -7,22 +7,30 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 
 ## [Unreleased]
 
+---
+
+## [2.4.0] — 2026-05-07
+
 ### Backup System — Phase 1 MVP (spec 014)
 
-First slice of the backup & restore system, fully wired end-to-end and smoke-tested on prod before merge.
+First slice of the backup & restore system, fully wired end-to-end and smoke-tested on prod before merge — including a real-world incident that revealed and fixed a design bug live (see "The Yannick Story" below).
 
 **Backend**
 - New migration `077_backups.sql` with three tables: `backups`, `backup_settings` (singleton), `backup_audit_log`
 - `backupService.ts` shells out to `pg_dump --format=custom --compress=9` and `tar -czf`, computes SHA-256 of the archive, and writes the row + audit entry. Restores use `pg_restore --single-transaction --clean --if-exists` so a half-failed restore rolls back atomically
+- `pg_dump` excludes the four meta-system tables (`backups`, `backup_audit_log`, `backup_settings`, `schema_migrations`) so a restore can never wipe its own safety net (see Yannick story)
 - Pre-restore snapshot is automatic: before any restore, a `source='pre-restore'` backup is created, marked `protected=TRUE` and `expires_at = NOW() + 24h`, and cannot be deleted manually during that window
 - Redis lock `backup:lock` (NX EX 3600) prevents two backups (or a backup-during-restore) from running concurrently. Released via Lua so a process can never delete a lock owned by someone else
-- 10 admin endpoints under `/api/v1/admin/backups`: list, create, get, download, delete, restore, verify, diff, audit, storage, settings (read-only in Phase 1)
+- 11 admin endpoints under `/api/v1/admin/backups`: list, create, get, download, delete, restore, verify, diff, audit, storage, settings, **reindex** (recovery for orphan archives)
 - `path.basename()` on the download path to defuse traversal attempts
 - 13 vitest tests added, full suite stays at 194 passing, zero regression
 
 **Frontend admin**
 - New page `/admin/backups` with storage indicator, table of backups, per-row Download / Verify / Restore / Delete actions
+- Linked from the admin sidebar in the *Instance* section (💾 Sauvegardes)
 - Restore modal with diff preview (`+/- threads, posts, messages, users, uploads`), pre-restore snapshot reassurance, type-to-confirm slug input, 5-second client countdown that only starts once the slug matches (server enforces the slug check too)
+- **Dry-run** button: verify the archive's checksum + format-version compat + tar structure WITHOUT touching the DB or filesystem. Result displayed inline (green ✓ "restorable" or red ✗ with the exact error). Audited as `metadata.dry_run = true`
+- Ordered list of restore steps shown in the modal — no more black box on a destructive action
 - `/admin/backups/audit` log viewer with action chips, success/failure pills, IP and user-agent shown — designed for post-compromise forensics (an attacker downloading a backup is an exfiltration event)
 
 **Docs**
@@ -31,6 +39,43 @@ First slice of the backup & restore system, fully wired end-to-end and smoke-tes
 **Phase 1 deliberately omits** Socket.IO progress (sync POST is fine for small instances), auto-backup scheduler, rotation, drag-and-drop upload of an external `.tar.gz`, AES-256-GCM encryption, and Docker bind-mount detection. Those land in Phase 2 / 3.
 
 **Note for self-hosters**: the backup directory is `nodyx-core/backups/` and must be writable by the `nodyx` user. On existing instances, run `sudo install -d -o nodyx -g nodyx -m 0700 /var/www/nexus/nodyx-core/backups` once. Phase 2 adds this step to `install.sh` automatically.
+
+### Live Maintenance Mode
+
+A user (`Yannick`) registered on nodyx.org during the very first prod restore test, between the `pg_dump` (21:00) and the matching `pg_restore` (21:17). His user row got wiped by the restore — recovered manually via CLI restore of the pre-restore snapshot, but the lesson was clear: **a critical write window has to be communicated to users**, not silently swallow their actions.
+
+Added in the same release:
+- `maintenanceService.ts` — single Redis flag (`nodyx:maintenance:meta`) with EX safety belt (auto-clear if the operation crashes). Set/cleared from `createBackup` and `restoreBackup` around their critical sections (TTL: 30 min create, 60 min restore)
+- `maintenanceGuard` middleware — global Fastify `onRequest` hook returning **503** with `{error, code: 'MAINTENANCE_IN_PROGRESS', reason, since, label}` on user-facing writes. Skips: GET/HEAD, `/api/v1/admin/*` (admin keeps working), `/api/v1/instance/maintenance`, static assets, Socket.IO
+- `GET /api/v1/instance/maintenance` — public, lightweight, polled by the frontend banner
+- `MaintenanceBanner.svelte` — sticky amber banner at the top of every page when active. Self-managing 15 s polling, hidden when no operation is in flight
+
+### Backup System — post-incident hardening
+
+Three commits triggered by the Yannick incident:
+- `--exclude-table` on `pg_dump` for `backups`, `backup_audit_log`, `backup_settings`, `schema_migrations` so a restore cannot wipe its own tracking metadata or the freshly-created pre-restore snapshot row
+- `instance` slug resolution now prefers `process.env.NODYX_COMMUNITY_SLUG` over `ORDER BY created_at` (mirrors `adminOnly.ts` behaviour, fixes filename `nodyx-backup-instance-...` → `nodyx-backup-nodyx-...`)
+- Drop the non-existent `language` column from the community SELECT — that field lives in the env, not the table
+- New `POST /admin/backups/reindex` endpoint and `reindexBackups()` service helper that scans `BACKUP_DIR`, parses each `.tar.gz` manifest in-memory (no full extraction), and INSERTs missing rows ON CONFLICT DO NOTHING. Idempotent. Use case: recovery after an incident, manual archive drop, or partial DB corruption that took out only the backups table
+
+### The Yannick Story
+
+This is the one moment we want preserved in the changelog because it's a perfect case of "test in production reveals what unit tests can't". The full play-by-play:
+
+1. Phase 1 MVP backend + frontend merged on `main`, smoke-tested via curl with admin tokens (all green)
+2. The maintainer creates the first real production backup at 21:00 (manual, full, including uploads)
+3. Between 21:00 and 21:17, **Yannick registers on nodyx.org** (perfectly innocent action)
+4. The maintainer clicks "Restore" on the 21:00 backup at 21:17 to validate the round-trip mechanics
+5. `pg_restore --clean --if-exists` rewinds the DB to its 21:00 state — Yannick's user row gets wiped
+6. The pre-restore snapshot's own row in `backups` also disappears, because that table is itself in the dump
+7. The audit log can no longer reference any row in `backups` (FK violation), errors silently
+8. Yannick pings on Discord: *"my profile is broken, I'm logged in but my page is dead"*
+9. Diagnostic: 26 users in DB, 27 in the pre-restore snapshot file → diff = Yannick
+10. Recovery via CLI restore of the pre-restore snapshot — Yannick's account is back, no content lost
+11. Three commits ship in the next 90 minutes: the dump exclusion, the maintenance flag, the reindex endpoint
+12. Yannick gets credited as ["The accidental contributor"](CONTRIBUTORS.md#-the-accidental-contributor) — first user whose mere existence at the wrong second taught the system its own design flaws
+
+Total cost of the incident on prod: 0 user lost, 0 thread lost, 0 post lost, 8 sessions to refresh, 1 design bug fixed forever, 1 new feature shipped (maintenance mode), 1 contributor immortalised in the repo.
 
 ---
 

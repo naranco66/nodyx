@@ -1,5 +1,5 @@
 # NODYX — Roadmap
-### Version 2.3 — Lecteur multimédia universel + fusion du catalogue Builder
+### Version 2.4 — Système de sauvegarde + Mode maintenance live
 
 ---
 
@@ -28,6 +28,7 @@
 | **Phase 4.12** | Homepage Builder + Widget SDK (v2.1) | ✅ Complète |
 | **Phase 4.13** | NodyxCanvas — Mise à jour majeure (v2.2) | ✅ Complète |
 | **Phase 4.14** | Lecteur multimédia universel + fusion catalogue Builder + Hardening tunnel (v2.3) | ✅ Complète |
+| **Phase 4.15** | Système de sauvegarde Phase 1 + Mode maintenance live (v2.4) | ✅ Complète |
 | Phase 5 | Mobile + Nodes + Réputation | 🔨 En cours |
 | **Phase Horizon** | NODYX-ETHER — Souveraineté de la couche physique | 🌌 Vision |
 | **Phase Radio** | NODYX-RADIO — Tuner radio internet + régie publicitaire coopérative | 📻 Vision |

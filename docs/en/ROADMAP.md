@@ -1,5 +1,5 @@
 # NODYX — Roadmap
-### Version 2.3 — Universal Media Player + Builder Catalog Fusion
+### Version 2.4 — Backup System + Live Maintenance Mode
 
 ---
 
@@ -28,6 +28,7 @@
 | **Phase 4.12** | Homepage Builder + Widget SDK (v2.1) | ✅ Complete |
 | **Phase 4.13** | NodyxCanvas — Major upgrade (v2.2) | ✅ Complete |
 | **Phase 4.14** | Universal Media Player + Builder Catalog Fusion + Tunnel Hardening (v2.3) | ✅ Complete |
+| **Phase 4.15** | Backup System Phase 1 + Live Maintenance Mode (v2.4) | ✅ Complete |
 | Phase 5 | Mobile + Nodes + Reactions + Discord import | 🔨 In Progress |
 | **Phase Horizon** | NODYX-ETHER — Physical layer sovereignty | 🌌 Vision |
 | **Phase Radio** | NODYX-RADIO — Internet radio + cooperative ad network | 📻 Vision |
