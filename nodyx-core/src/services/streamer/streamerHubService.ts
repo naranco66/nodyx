@@ -23,13 +23,26 @@ import type { StreamerProvider, ProviderId } from './providers/_types'
 //                     (admin only, OAuth complet avec tous les scopes)
 //   - kind=viewer   : lier son compte Twitch personnel à son profil Nodyx
 //                     (auth required, scope minimal user:read:email)
+//
+// Idempotence : Twitch peut callback /callback plusieurs fois quasi-simultanément
+// (prefetch browser, retry interne, etc.). Le state est consommé une seule fois,
+// mais on garde le payload sous une clé "consumed:" pendant 30s pour que les
+// retries puissent se reconnaître comme des replays et rediriger gracieusement
+// au lieu de retourner invalid_or_expired_state.
 
-const STATE_PREFIX      = 'streamer:oauth:state:'
-const STATE_TTL_SECONDS = 600  // 10 min
+const STATE_PREFIX          = 'streamer:oauth:state:'
+const STATE_CONSUMED_PREFIX = 'streamer:oauth:state-consumed:'
+const STATE_TTL_SECONDS     = 600  // 10 min
+const CONSUMED_TTL_SECONDS  = 30   // fenêtre de tolérance pour callbacks dupliqués
 
 export type OAuthState =
   | { kind: 'streamer'; targetUserId: string; ip: string; createdAt: number }
   | { kind: 'viewer';   targetUserId: string; ip: string; createdAt: number }
+
+export interface ConsumeResult {
+  state:    OAuthState
+  replayed: boolean  // true si déjà consommé une 1ère fois (callback dupliqué)
+}
 
 export async function createOAuthState(args: {
   kind:         OAuthState['kind']
@@ -47,12 +60,33 @@ export async function createOAuthState(args: {
   return token
 }
 
-export async function consumeOAuthState(token: string): Promise<OAuthState | null> {
-  const key   = STATE_PREFIX + token
-  const value = await redis.get(key)
-  if (!value) return null
-  await redis.del(key)
-  try { return JSON.parse(value) as OAuthState } catch { return null }
+export async function consumeOAuthState(token: string): Promise<ConsumeResult | null> {
+  const key         = STATE_PREFIX + token
+  const consumedKey = STATE_CONSUMED_PREFIX + token
+
+  // 1. Tentative atomique : récupérer ET supprimer la clé fraîche
+  // (ioredis getdel = GETDEL natif Redis 6.2+, atomique)
+  const value = await redis.getdel(key)
+  if (value) {
+    let state: OAuthState
+    try { state = JSON.parse(value) as OAuthState } catch { return null }
+    // Stocker le résultat sous une clé séparée pour les replays imminents
+    await redis.set(consumedKey, value, 'EX', CONSUMED_TTL_SECONDS).catch(() => {})
+    return { state, replayed: false }
+  }
+
+  // 2. La clé principale est vide. Peut-être un callback dupliqué — checker
+  // la clé "consumed" qui garde le payload 30s après la première consommation.
+  const consumedValue = await redis.get(consumedKey)
+  if (consumedValue) {
+    try {
+      const state = JSON.parse(consumedValue) as OAuthState
+      return { state, replayed: true }
+    } catch { return null }
+  }
+
+  // 3. Vraiment invalid ou expiré (>10min ou >30s après consommation).
+  return null
 }
 
 // ── Provider registry ────────────────────────────────────────────────────────

@@ -180,8 +180,8 @@ export const streamerAdminPlugin: FastifyPluginAsync = async (server) => {
       return reply.code(400).send({ ok: false, error: 'missing_code_or_state' })
     }
 
-    const stateData = await consumeOAuthState(q.state)
-    if (!stateData) {
+    const consumed = await consumeOAuthState(q.state)
+    if (!consumed) {
       await audit({
         action: 'connect_twitch', status: 'failed',
         ipAddress: request.ip,
@@ -189,10 +189,19 @@ export const streamerAdminPlugin: FastifyPluginAsync = async (server) => {
       })
       return reply.code(400).send({ ok: false, error: 'invalid_or_expired_state' })
     }
+    const { state: stateData, replayed } = consumed
 
     // Branch sur le kind du state : streamer (admin OAuth complet) ou
     // viewer (lier juste le twitch_id à un user Nodyx existant).
     if (stateData.kind === 'viewer') {
+      // Callback dupliqué (Twitch / browser prefetch) : on skip le exchange
+      // (le code OAuth a déjà été consommé par le 1er callback) et on redirect
+      // gracieusement vers /settings. Le 1er callback a fait le link, le user
+      // est arrivé au bon état.
+      if (replayed) {
+        request.log.info({ stateKind: 'viewer' }, 'OAuth callback replayed — skipping exchange')
+        return reply.redirect('/settings?twitch_link_replay=1', 302)
+      }
       try {
         const result = await completeViewerOAuth({
           provider:     getProvider('twitch'),
@@ -224,6 +233,10 @@ export const streamerAdminPlugin: FastifyPluginAsync = async (server) => {
     }
 
     // kind === 'streamer'
+    if (replayed) {
+      request.log.info({ stateKind: 'streamer' }, 'OAuth callback replayed — skipping exchange')
+      return reply.redirect('/admin/streamer-hub?twitch_link_replay=1', 302)
+    }
     try {
       const result = await completeOAuthCallback({
         provider:    getProvider('twitch'),
