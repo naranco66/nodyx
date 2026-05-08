@@ -99,20 +99,24 @@ function verifyHmac(args: {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const streamerAdminPlugin: FastifyPluginAsync = async (server) => {
-  // GET /twitch/auth  (admin-gated) — démarre OAuth, redirige vers Twitch
-  server.get('/twitch/auth', { preHandler: adminOnly }, async (request, reply) => {
+  // GET /twitch/auth-init  (admin-gated) — retourne l'URL Twitch en JSON
+  // Le frontend admin fait ensuite `window.location = authorizeUrl` pour
+  // déclencher la navigation. On peut PAS faire un 302 direct ici parce que
+  // les navigateurs n'envoient pas le header Authorization sur navigation,
+  // donc adminOnly serait inopérant.
+  server.get('/twitch/auth-init', { preHandler: adminOnly }, async (request) => {
     const provider = getProvider('twitch')
     const state = await createOAuthState({
       adminUserId: request.user!.userId,
       ip:          request.ip,
     })
-    const url = provider.buildAuthorizeUrl({
+    const authorizeUrl = provider.buildAuthorizeUrl({
       redirectUri: redirectUri(),
       state,
       scopes:      [...STREAMER_HUB_SCOPES],
       forceVerify: true,
     })
-    return reply.redirect(url, 302)
+    return { authorizeUrl }
   })
 
   // GET /twitch/callback (public — Twitch nous appelle)
