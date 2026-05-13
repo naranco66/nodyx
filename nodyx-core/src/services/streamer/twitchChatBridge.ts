@@ -4,9 +4,7 @@
 //
 // Convention :
 //   - Le message est POST avec sender_id = broadcaster_id = streamer Twitch.
-//     Le streamer "héberge" donc tous les messages relayés. Phase futur :
-//     si le user Nodyx a son Twitch lié avec user:write:chat, poster comme
-//     lui (plus authentique mais demande plus de scopes côté viewer).
+//     Le streamer "héberge" donc tous les messages relayés.
 //   - Le contenu est préfixé par [NodyxAuthor] pour que les viewers Twitch
 //     comprennent que ce n'est pas le streamer qui écrit directement.
 //   - Garde-fou §6.4 : on ne relaie QUE si le streamer est actuellement en
@@ -32,17 +30,15 @@ const RELAY_TEST_MODE = process.env.STREAMER_CHAT_TEST_MODE === '1'
 
 async function isStreamerLive(broadcasterExternalId: string): Promise<boolean> {
   if (RELAY_TEST_MODE) return true
+  // Une instance Nodyx = un streamer principal, donc une seule row ouverte
+  // dans streamer_sessions à un instant T. Le lifecycle (open/close) est
+  // géré par handleStreamerEvent sur stream.online / stream.offline.
   const r = await db.query<{ id: string }>(
     `SELECT id FROM streamer_sessions
      WHERE provider = 'twitch' AND external_id IS NOT NULL
        AND ended_at IS NULL
      LIMIT 1`,
   )
-  // Note : pour la 1ère version, on check juste qu'il y a UNE session ouverte
-  // (provider == 'twitch'). En Phase 1 on ne crée pas encore de row dans
-  // streamer_sessions à stream.online (c'était spec mais pas implémenté).
-  // Conséquence : isStreamerLive retournera FALSE → no-op outbound. C'est
-  // un blocker à fixer (créer streamer_sessions à stream.online).
   void broadcasterExternalId
   return r.rows.length > 0
 }
