@@ -16,6 +16,7 @@ import { db } from '../../config/database'
 import * as Channel from '../../models/channel'
 import { io } from '../../socket/io'
 import { renderChatMessage } from './emotes'
+import { renderBadges } from './badges'
 import type { ProviderId } from './providers/_types'
 
 const STREAMER_EVENTS_SLUG = 'streamer-events'
@@ -386,7 +387,7 @@ export async function pushTwitchChatMessage(args: {
       chatter_user_name?:   string
       message?:             { text?: string; fragments?: TwitchFragment[] }
       message_id?:          string
-      badges?:              unknown[]
+      badges?:              Array<{ set_id: string; id: string; info?: string }>
       color?:               string
     }
   }
@@ -409,14 +410,22 @@ export async function pushTwitchChatMessage(args: {
 
   // Brique 2.5 : render le message en HTML avec emotes natives Twitch
   // (depuis fragments) + BTTV/FFZ/7TV (depuis cache Redis 24h).
+  // Brique 2.6 : préfixe par les badges Twitch (sub, mod, vip, premium, etc).
   // Si le rendering échoue, on tombe en fallback sur le texte brut escaped.
   let content: string
   try {
-    content = await renderChatMessage({
-      twitchBroadcasterId: evt.broadcaster_user_id,
-      text:                evt.message.text,
-      fragments:           evt.message.fragments,
-    })
+    const [badgesHtml, bodyHtml] = await Promise.all([
+      renderBadges({
+        badges:        evt.badges,
+        broadcasterId: evt.broadcaster_user_id,
+      }),
+      renderChatMessage({
+        twitchBroadcasterId: evt.broadcaster_user_id,
+        text:                evt.message.text,
+        fragments:           evt.message.fragments,
+      }),
+    ])
+    content = badgesHtml + bodyHtml
   } catch (err) {
     console.error('[streamerChat] renderChatMessage failed, falling back to plain text', err)
     content = evt.message.text
