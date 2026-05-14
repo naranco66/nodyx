@@ -118,12 +118,20 @@
 
 	async function decryptPendingMessages() {
 		if (!peerPublicKey) return
+		// Mémoriser si on était au fond AVANT le re-rendu : si le user lit
+		// son historique en haut, on ne veut pas le téléporter en bas après
+		// déchiffrement. Sinon, on suit l'élargissement.
+		const stickToBottom = isNearBottom()
 		const updated = await Promise.all(messages.map(async (m) => {
 			if (!m.is_encrypted || !m.encryption_nonce || m._decrypted !== undefined) return m
 			const plain = await decryptDM(m.content, m.encryption_nonce, peerPublicKey!, data.token)
 			return { ...m, _decrypted: plain ?? undefined, _decryptFailed: plain === null }
 		}))
 		messages = updated
+		if (stickToBottom) {
+			await tick()
+			scrollToBottom()
+		}
 	}
 
 	// Quand on switch de conversation
@@ -219,13 +227,20 @@
 	async function onDmMessage(msg: DmMessage) {
 		if (msg.conversation_id !== conversationId) return
 
+		// On capture wasNear AVANT d'ajouter le message au tableau : si l'user
+		// est à 120px ou moins du bas, on considère qu'il suit la conv et on
+		// scroll vers le nouveau message. Sinon (lit l'historique), on ne le
+		// téléporte pas — on respecte sa lecture.
+		const wasNear = isNearBottom()
+		const maybeScroll = () => { if (wasNear) scrollToBottom() }
+
 		if (msg.is_encrypted && msg.encryption_nonce && peerPublicKey) {
 			// 1. Afficher d'abord le message barbarisé
 			if (esyKey) {
 				const barbarText = barbarizeVisual(msg.content.slice(0, 40), esyKey, 0.6)
 				msg = { ...msg, _barbarizing: true, _barbarText: barbarText }
 				messages = [...messages, msg]
-				tick().then(scrollToBottom)
+				tick().then(maybeScroll)
 
 				// 2. Déchiffrer pendant l'animation (350ms)
 				await new Promise(r => setTimeout(r, 350))
@@ -237,15 +252,18 @@
 						? { ...m, _barbarizing: false, _barbarText: undefined, _decrypted: plain ?? undefined, _decryptFailed: plain === null }
 						: m
 				)
+				// Le clair peut être plus long que les 40 chars du barbar : re-scroll
+				// pour rattraper la nouvelle hauteur si le user était au bas.
+				tick().then(maybeScroll)
 			} else {
 				const plain = await decryptDM(msg.content, msg.encryption_nonce, peerPublicKey, data.token)
 				msg = { ...msg, _decrypted: plain ?? undefined, _decryptFailed: plain === null }
 				messages = [...messages, msg]
-				tick().then(scrollToBottom)
+				tick().then(maybeScroll)
 			}
 		} else {
 			messages = [...messages, msg]
-			tick().then(scrollToBottom)
+			tick().then(maybeScroll)
 		}
 
 		if (document.hasFocus()) markRead()
@@ -482,8 +500,28 @@
 		}).catch(() => {})
 	}
 
+	// Scroll fiable : on attend la fin du layout via rAF pour s'assurer que
+	// scrollHeight reflète bien tous les enfants (MessageBody, images, etc.)
+	// déjà rendus. tick() côté Svelte ne suffit pas toujours.
 	function scrollToBottom() {
-		if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight
+		if (!messagesEl) return
+		const el = messagesEl
+		requestAnimationFrame(() => {
+			el.scrollTop = el.scrollHeight
+			// Double rAF : si le 1er frame mesure une hauteur encore en train
+			// de se stabiliser (fonts, images sans dimensions, etc.), le 2e
+			// rattrape sans coût perceptible.
+			requestAnimationFrame(() => { el.scrollTop = el.scrollHeight })
+		})
+	}
+
+	// Est-on dans les 120px du bas ? Si oui, on considère que l'user "suit"
+	// le fil et on auto-scroll quand un nouveau message arrive ou quand la
+	// hauteur change (déchiffrement E2E, etc.).
+	function isNearBottom(): boolean {
+		if (!messagesEl) return true  // pas encore monté → on assume en bas
+		const dist = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight
+		return dist < 120
 	}
 
 	async function loadMore() {
