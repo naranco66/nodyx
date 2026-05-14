@@ -36,6 +36,7 @@ import canvasRoutes          from './routes/canvas'
 import twitchRoutes           from './routes/twitch'
 import { streamerAdminPlugin, streamerEventsubPlugin } from './routes/streamer'
 import { startChatOutboundWorker } from './services/streamer/twitchChatBridge'
+import { NODYX_VERSION } from './utils/version'
 import { setIO }              from './socket/io'
 import { registerSocketIO } from './socket/index'
 import { runMigrations }    from './scripts/migrate'
@@ -82,7 +83,7 @@ server.register(fastifyMultipart, {
 server.get('/', async () => {
   return {
     name: 'Nodyx',
-    version: process.env.NODYX_VERSION ?? '1.9.0',
+    version: NODYX_VERSION,
     message: getRandomFortune(),
     status: 'alive'
   }
