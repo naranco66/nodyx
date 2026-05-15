@@ -101,4 +101,46 @@ export const actions: Actions = {
 		if (!res.ok) return fail(400, { error: (await res.json()).error })
 		return { ok: true }
 	},
+
+	// Ajout manuel d'un ban email OU domain (juste 'mailinator.com' pour
+	// bloquer tout @mailinator.com). Le backend matche déjà email exact +
+	// domain via split_part dans /auth/register.
+	banEmail: async ({ fetch, request, cookies }) => {
+		const token  = cookies.get('token')!
+		const data   = await request.formData()
+		const email  = (data.get('email')  as string)?.trim()
+		const reason = (data.get('reason') as string)?.trim() || undefined
+		if (!email) return fail(400, { error: 'Email ou domaine requis' })
+
+		const res = await apiFetch(fetch, '/admin/email-bans', {
+			method:  'POST',
+			headers: {
+				'Authorization': `Bearer ${token}`,
+				'Content-Type':  'application/json',
+			},
+			body: JSON.stringify({ email, reason }),
+		})
+		if (!res.ok) return fail(400, { error: (await res.json()).error })
+		return { ok: true }
+	},
+
+	// Ajout manuel d'un ban IP. Accepte IPv4, IPv6, ou CIDR (ex: 1.2.3.0/24).
+	banIp: async ({ fetch, request, cookies }) => {
+		const token  = cookies.get('token')!
+		const data   = await request.formData()
+		const ip     = (data.get('ip')     as string)?.trim()
+		const reason = (data.get('reason') as string)?.trim() || undefined
+		if (!ip) return fail(400, { error: 'IP requise' })
+
+		const res = await apiFetch(fetch, '/admin/ip-bans', {
+			method:  'POST',
+			headers: {
+				'Authorization': `Bearer ${token}`,
+				'Content-Type':  'application/json',
+			},
+			body: JSON.stringify({ ip, reason }),
+		})
+		if (!res.ok) return fail(400, { error: (await res.json()).error })
+		return { ok: true }
+	},
 }

@@ -277,6 +277,33 @@
 		</div>
 	{/if}
 
+	<!-- ── Ajouter un ban IP ────────────────────────────────────────────────── -->
+	<div class="mt-8">
+		<h2 class="text-base font-semibold text-white mb-1">Bannir une IP</h2>
+		<p class="text-xs text-gray-600 mb-3">IPv4, IPv6 ou CIDR (ex&nbsp;: <code class="text-gray-400">1.2.3.0/24</code>).</p>
+		<form method="POST" action="?/banIp" use:enhance class="flex flex-wrap gap-2 items-end">
+			<div class="flex-1 min-w-[180px]">
+				<label for="ban-ip-input" class="block text-[10px] font-bold uppercase tracking-wider text-gray-600 mb-1">IP / CIDR</label>
+				<input
+					id="ban-ip-input" name="ip" type="text" required
+					placeholder="93.123.109.163"
+					class="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-800 focus:border-red-500/40 text-sm text-white font-mono outline-none"
+				/>
+			</div>
+			<div class="flex-[2] min-w-[200px]">
+				<label for="ban-ip-reason" class="block text-[10px] font-bold uppercase tracking-wider text-gray-600 mb-1">Raison (optionnel)</label>
+				<input
+					id="ban-ip-reason" name="reason" type="text"
+					placeholder="Scanner .env automatisé"
+					class="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-800 focus:border-red-500/40 text-sm text-white outline-none"
+				/>
+			</div>
+			<button type="submit" class="px-4 py-2 rounded-lg bg-red-900/30 hover:bg-red-900/50 border border-red-700/40 text-sm text-red-200 transition-colors">
+				Bannir l'IP
+			</button>
+		</form>
+	</div>
+
 	<!-- ── IPs bannies ─────────────────────────────────────────────────────── -->
 	{#if ipBans.length > 0}
 		<div class="mt-8">
@@ -321,6 +348,35 @@
 			</div>
 		</div>
 	{/if}
+
+	<!-- ── Ajouter un ban email / domain ───────────────────────────────────── -->
+	<div class="mt-8">
+		<h2 class="text-base font-semibold text-white mb-1">Bannir un email ou un domaine</h2>
+		<p class="text-xs text-gray-600 mb-3">
+			Tape un email complet (<code class="text-gray-400">spam@example.com</code>) ou juste un domaine (<code class="text-gray-400">mailinator.com</code>) pour bloquer toutes les adresses sur ce domaine.
+		</p>
+		<form method="POST" action="?/banEmail" use:enhance class="flex flex-wrap gap-2 items-end">
+			<div class="flex-1 min-w-[200px]">
+				<label for="ban-email-input" class="block text-[10px] font-bold uppercase tracking-wider text-gray-600 mb-1">Email ou domaine</label>
+				<input
+					id="ban-email-input" name="email" type="text" required
+					placeholder="mailinator.com"
+					class="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-800 focus:border-yellow-500/40 text-sm text-white font-mono outline-none"
+				/>
+			</div>
+			<div class="flex-[2] min-w-[200px]">
+				<label for="ban-email-reason" class="block text-[10px] font-bold uppercase tracking-wider text-gray-600 mb-1">Raison (optionnel)</label>
+				<input
+					id="ban-email-reason" name="reason" type="text"
+					placeholder="Mailer jetable, bot signup, etc."
+					class="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-800 focus:border-yellow-500/40 text-sm text-white outline-none"
+				/>
+			</div>
+			<button type="submit" class="px-4 py-2 rounded-lg bg-yellow-900/30 hover:bg-yellow-900/50 border border-yellow-700/40 text-sm text-yellow-200 transition-colors">
+				Bannir
+			</button>
+		</form>
+	</div>
 
 	<!-- ── Emails bannis ───────────────────────────────────────────────────── -->
 	{#if emailBans.length > 0}
