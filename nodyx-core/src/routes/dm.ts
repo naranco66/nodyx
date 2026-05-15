@@ -215,7 +215,18 @@ export default async function dmRoutes(app: FastifyInstance) {
     const { rows: messages } = await db.query(`
       SELECT
         m.id, m.conversation_id, m.sender_id, m.content, m.created_at, m.deleted_at, m.edited_at,
-        m.is_encrypted, m.encryption_nonce,
+        m.is_encrypted, m.encryption_nonce, m.reply_to_id,
+        -- Snapshot du message cité (reply / quote) : id, auteur, preview 200 chars
+        CASE WHEN m.reply_to_id IS NULL THEN NULL ELSE
+          (SELECT json_build_object(
+             'id',              rm.id,
+             'sender_username', ru.username,
+             'content',         LEFT(rm.content, 200),
+             'is_encrypted',    rm.is_encrypted
+           )
+           FROM dm_messages rm JOIN users ru ON ru.id = rm.sender_id
+           WHERE rm.id = m.reply_to_id)
+        END AS reply_snapshot,
         u.username        AS sender_username,
         u.avatar          AS sender_avatar,
         up.name_color     AS sender_name_color,

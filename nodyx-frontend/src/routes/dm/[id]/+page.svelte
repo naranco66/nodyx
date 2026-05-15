@@ -30,6 +30,13 @@
 		users?:    DmReactionUser[]  // Layer 1 tooltip vivant : top 8 récents
 	}
 
+	interface DmReplySnapshot {
+		id:              string
+		sender_username: string
+		content:         string
+		is_encrypted:    boolean
+	}
+
 	interface DmMessage {
 		id: string
 		conversation_id: string
@@ -44,6 +51,8 @@
 		encryption_nonce?: string | null
 		edited_at?: string | null
 		reactions?: DmReaction[]
+		reply_to_id?:   string | null
+		reply_snapshot?: DmReplySnapshot | null
 		// Texte déchiffré en local (jamais persisté)
 		_decrypted?: string
 		_decryptFailed?: boolean
@@ -774,11 +783,30 @@
 		typingTimeout = setTimeout(() => { typingTimeout = null }, 2000)
 	}
 
+	// Reply / quote : message en cours de citation, ou null si rien à citer
+	let replyingTo = $state<DmMessage | null>(null)
+	function startReply(msg: DmMessage) {
+		replyingTo = msg
+		// Focus la textarea pour que l'user puisse taper sa réponse immédiatement
+		tick().then(() => messageTextareaEl?.focus())
+	}
+	function cancelReply() { replyingTo = null }
+	function replyPreview(msg: DmMessage): string {
+		if (msg.is_encrypted) {
+			if (msg._decrypted) return msg._decrypted.slice(0, 120)
+			return '🔒 message chiffré'
+		}
+		return (msg.content || '').slice(0, 120)
+	}
+
 	async function sendMessage() {
 		const content = messageInput.trim()
 		if (!content || sendingMsg) return
 		sendingMsg = true
 		messageInput = ''
+		// On capture le replyingTo AVANT le clear (pour l'envoyer avec le message)
+		const replyId = replyingTo?.id ?? null
+		replyingTo = null
 
 		try {
 			const sock = getSocket()
@@ -801,12 +829,13 @@
 						content: ciphertext,
 						is_encrypted: true,
 						encryption_nonce: nonce,
+						reply_to_id: replyId,
 					})
 				}
 			} else {
 				// ── Fallback texte clair ────────────────────────────────────────
 				if (sock) {
-					sock.emit('dm:send', { conversationId, content })
+					sock.emit('dm:send', { conversationId, content, reply_to_id: replyId })
 				}
 			}
 		} finally {
@@ -1290,6 +1319,15 @@
 											</svg>
 										</button>
 									{/if}
+									<!-- Bouton répondre (visible pour tous, sauf messages systèmes) -->
+									<button onclick={() => startReply(msg)}
+										class="p-1 rounded-md hover:bg-white/[0.08] text-gray-600 hover:text-indigo-400 transition-colors"
+										title={tFn('dm.reply') ?? 'Répondre'}>
+										<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<polyline points="9 14 4 9 9 4"/>
+											<path d="M20 20v-7a4 4 0 0 0-4-4H4"/>
+										</svg>
+									</button>
 									<!-- Bouton réaction -->
 									<button
 										onclick={() => pickerOpenMsgId = pickerOpenMsgId === msg.id ? null : msg.id}
@@ -1347,6 +1385,18 @@
 										<button onclick={cancelEdit} class="text-[10px] px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/[0.10] text-gray-400 transition-colors">Échap</button>
 									</div>
 								{:else}
+									<!-- Quote inline si ce message est une réponse à un autre -->
+									{#if msg.reply_snapshot}
+										<div class="dm-quote">
+											<div class="dm-quote-bar"></div>
+											<div class="dm-quote-content">
+												<div class="dm-quote-author">{msg.reply_snapshot.sender_username}</div>
+												<div class="dm-quote-preview">
+													{msg.reply_snapshot.is_encrypted ? '🔒 message chiffré' : msg.reply_snapshot.content}
+												</div>
+											</div>
+										</div>
+									{/if}
 									<MessageBody text={displayContent(msg)} />
 
 									<!-- Lock badge si message chiffré -->
@@ -1439,6 +1489,21 @@
 
 		<!-- Zone de saisie -->
 		<div class="shrink-0 px-5 py-4 border-t border-white/[0.06] bg-gray-950/30">
+			<!-- Banner reply : indique le message qu'on est en train de citer -->
+			{#if replyingTo}
+				<div class="dm-reply-banner">
+					<div class="dm-reply-banner-bar"></div>
+					<div class="dm-reply-banner-content">
+						<div class="dm-reply-banner-label">Réponse à <strong>{replyingTo.sender_username}</strong></div>
+						<div class="dm-reply-banner-preview">{replyPreview(replyingTo)}</div>
+					</div>
+					<button onclick={cancelReply} class="dm-reply-banner-close" aria-label="Annuler la réponse">
+						<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+							<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+						</svg>
+					</button>
+				</div>
+			{/if}
 			<!-- Animation barbare d'envoi -->
 			{#if sendingVisual}
 				<div class="mb-2 px-3 py-1.5 rounded-xl bg-indigo-900/20 border border-indigo-500/15 text-xs font-mono text-indigo-300/60 truncate tracking-widest animate-pulse">
@@ -1502,6 +1567,95 @@
 </div>
 
 <style>
+/* ── Reply / quote inline ─────────────────────────────────────────────────── */
+.dm-quote {
+	display: flex;
+	gap: 8px;
+	padding: 6px 10px 6px 8px;
+	margin-bottom: 4px;
+	background: rgba(99, 102, 241, 0.06);
+	border-radius: 8px 8px 8px 2px;
+	max-width: 100%;
+}
+.dm-quote-bar {
+	width: 3px;
+	border-radius: 2px;
+	background: linear-gradient(to bottom, #818cf8, #6366f1);
+	flex-shrink: 0;
+}
+.dm-quote-content {
+	min-width: 0;
+	flex: 1;
+}
+.dm-quote-author {
+	font-size: 11px;
+	font-weight: 700;
+	color: #a5b4fc;
+	margin-bottom: 1px;
+}
+.dm-quote-preview {
+	font-size: 12px;
+	color: rgba(226, 232, 240, 0.6);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	line-clamp: 2;
+}
+
+/* ── Banner reply au-dessus du composer ───────────────────────────────────── */
+.dm-reply-banner {
+	display: flex;
+	gap: 10px;
+	align-items: center;
+	margin-bottom: 8px;
+	padding: 8px 10px;
+	background: rgba(99, 102, 241, 0.08);
+	border: 1px solid rgba(99, 102, 241, 0.18);
+	border-radius: 10px;
+	animation: dm-reply-banner-in .15s ease-out;
+}
+@keyframes dm-reply-banner-in {
+	from { opacity: 0; transform: translateY(4px); }
+	to   { opacity: 1; transform: translateY(0); }
+}
+.dm-reply-banner-bar {
+	width: 3px;
+	height: 28px;
+	border-radius: 2px;
+	background: linear-gradient(to bottom, #818cf8, #6366f1);
+	flex-shrink: 0;
+}
+.dm-reply-banner-content {
+	min-width: 0;
+	flex: 1;
+}
+.dm-reply-banner-label {
+	font-size: 11px;
+	color: #a5b4fc;
+	margin-bottom: 2px;
+}
+.dm-reply-banner-label strong { color: #c7d2fe; font-weight: 700; }
+.dm-reply-banner-preview {
+	font-size: 12px;
+	color: rgba(226, 232, 240, 0.55);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.dm-reply-banner-close {
+	flex-shrink: 0;
+	padding: 4px;
+	border-radius: 6px;
+	background: transparent;
+	border: none;
+	color: rgba(165, 180, 252, 0.6);
+	cursor: pointer;
+	transition: background .15s, color .15s;
+}
+.dm-reply-banner-close:hover { background: rgba(99, 102, 241, 0.12); color: #c7d2fe; }
+
 /* ── Hero d'ouverture ─────────────────────────────────────────────────────── */
 .dm-hero-overlay {
 	position: absolute;

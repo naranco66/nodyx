@@ -668,6 +668,7 @@ export function registerSocketIO(server: Server): void {
       content:          string
       is_encrypted?:    boolean
       encryption_nonce?: string
+      reply_to_id?:     string  // Reply / quote (Layer 7)
     }) => {
       if (checkRateLimit(userId, 'dm:send')) return
       try {
@@ -700,20 +701,53 @@ export function registerSocketIO(server: Server): void {
           }
         }
 
+        // Reply : valider que le message cité appartient à la même conv (pas
+        // de cross-conversation leaks). Si invalide, on ignore le reply_to_id
+        // mais on envoie quand même le message.
+        let replyToId: string | null = null
+        if (data.reply_to_id && isUuid(data.reply_to_id)) {
+          const { rows: [target] } = await db.query<{ id: string }>(
+            `SELECT id FROM dm_messages
+             WHERE id = $1 AND conversation_id = $2 AND deleted_at IS NULL
+             LIMIT 1`,
+            [data.reply_to_id, data.conversationId],
+          )
+          if (target) replyToId = target.id
+        }
+
         const { rows: [msg] } = await db.query<{
           id: string; conversation_id: string; sender_id: string;
           content: string; created_at: Date; is_encrypted: boolean; encryption_nonce: string | null;
+          reply_to_id: string | null;
         }>(`
-          INSERT INTO dm_messages (conversation_id, sender_id, content, is_encrypted, encryption_nonce)
-          VALUES ($1, $2, $3, $4, $5)
-          RETURNING id, conversation_id, sender_id, content, created_at, is_encrypted, encryption_nonce
-        `, [data.conversationId, userId, clean, isEncrypted, isEncrypted ? data.encryption_nonce : null])
+          INSERT INTO dm_messages (conversation_id, sender_id, content, is_encrypted, encryption_nonce, reply_to_id)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          RETURNING id, conversation_id, sender_id, content, created_at, is_encrypted, encryption_nonce, reply_to_id
+        `, [data.conversationId, userId, clean, isEncrypted, isEncrypted ? data.encryption_nonce : null, replyToId])
+
+        // Si reply, on fetch un snapshot du message cité (auteur + preview)
+        // pour le payload : évite au frontend une 2e requête au moment du
+        // rendering. Le content est tronqué à 200 chars (preview).
+        let replySnapshot: { id: string; sender_username: string; content: string; is_encrypted: boolean } | null = null
+        if (replyToId) {
+          const { rows: [r] } = await db.query<{
+            id: string; sender_username: string; content: string; is_encrypted: boolean
+          }>(
+            `SELECT m.id, u.username AS sender_username,
+                    LEFT(m.content, 200) AS content, m.is_encrypted
+             FROM dm_messages m JOIN users u ON u.id = m.sender_id
+             WHERE m.id = $1`,
+            [replyToId],
+          )
+          if (r) replySnapshot = r
+        }
 
         const payload = {
           ...msg,
           sender_username:   username,
           sender_avatar:     socket.data.avatar ?? null,
           sender_name_color: socket.data.nameColor ?? null,
+          reply_snapshot:    replySnapshot,
         }
 
         // Émettre à tous les participants via leurs rooms personnelles
