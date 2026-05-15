@@ -148,20 +148,11 @@
 		e2eStatus = 'unknown'
 
 		sendingVisual = null
-		// Repasser en mode "suivre le bas" automatiquement quand on change de
-		// conversation (on est sur un nouveau contexte, pas la peine de garder
-		// la position de l'ancien).
-		stickBottom = true
+		// stickBottom = true et le scroll sont gérés par l'$effect qui dépend
+		// de conversationId — il se relance automatiquement ici.
 		markRead()
 		dmUnreadStore.set(0)
-		tick().then(async () => {
-			// L'inner el peut avoir changé de référence si le bloc s'est
-			// re-render — on re-setup pour pointer le nouveau.
-			teardownStickyBottom()
-			setupStickyBottom()
-			scrollToBottom()
-			await initE2E()
-		})
+		tick().then(() => { initE2E() })
 	})
 
 	let messageInput = $state('')
@@ -192,13 +183,9 @@
 
 		markRead()
 		dmUnreadStore.set(0)
-		await tick()
-		// Setup le sticky-bottom : ResizeObserver qui suivra toutes les
-		// croissances du contenu (déchiffrement, images, fonts, etc.) tant
-		// que stickBottom = true. Aussi un scroll initial direct pour le 1er
-		// paint (avant que l'observer ait son baseline).
-		setupStickyBottom()
-		scrollToBottom()
+		// Plus besoin de scroll manuel ici : les 3 $effect réactifs s'en
+		// occupent (ResizeObserver + dépendance sur conversationId + dépendance
+		// sur messages.length). Tout est piloté par le state.
 
 		// Écoute socket DM — attendre que le socket soit prêt si nécessaire
 		const attachListeners = (sock: ReturnType<typeof getSocket>) => {
@@ -239,7 +226,8 @@
 			sock.off('dm:message', onDmMessage)
 			sock.off('dm:typing', onDmTyping)
 		}
-		teardownStickyBottom()
+		// Cleanup des $effect (ResizeObserver, timeouts) est automatique
+		// via les return cleanup de chaque effect.
 	})
 
 	async function onDmMessage(msg: DmMessage) {
@@ -529,27 +517,60 @@
 		return dist < 120
 	}
 
-	// ── ResizeObserver : le vrai garde-fou anti-perte-de-position ────────────
-	// À chaque fois que le contenu interne change de taille (mount initial,
-	// déchiffrement E2E qui remplace les '…' par les textes, nouveau message
-	// reçu, images qui se chargent, fonts qui finalisent), on re-scroll en bas
-	// SI stickBottom est vrai. Ce flag bascule à false dès que l'user remonte
-	// volontairement, donc l'auto-scroll respecte sa lecture.
-	let resizeObserver: ResizeObserver | null = null
-	function setupStickyBottom() {
+	// ── Auto-scroll réactif via $effect ──────────────────────────────────────
+	// Approche 100% réactive : 3 effets indépendants se relancent quand leurs
+	// dépendances changent. Plus de orchestration manuelle (pas de
+	// setupStickyBottom / scrollToBottom appelés à divers endroits du cycle
+	// de vie). Le `if (stickBottom)` à l'intérieur de chaque effet garantit
+	// qu'on ne perturbe jamais un user qui lit le passé.
+
+	// Effet 1 : ResizeObserver sur le inner. Capte TOUS les changements de
+	// hauteur asynchrones (fonts, images, déchiffrement E2E, nouveaux messages
+	// arrivant via socket). Se ré-attache si messagesInnerEl change de réf.
+	$effect(() => {
+		const inner  = messagesInnerEl
+		const outer  = messagesEl
+		if (!inner || !outer) return
 		if (typeof ResizeObserver === 'undefined') return
-		if (!messagesInnerEl || resizeObserver) return
-		resizeObserver = new ResizeObserver(() => {
-			if (stickBottom && messagesEl) {
-				messagesEl.scrollTop = messagesEl.scrollHeight
-			}
+		const ro = new ResizeObserver(() => {
+			if (stickBottom) outer.scrollTop = outer.scrollHeight
 		})
-		resizeObserver.observe(messagesInnerEl)
-	}
-	function teardownStickyBottom() {
-		resizeObserver?.disconnect()
-		resizeObserver = null
-	}
+		ro.observe(inner)
+		return () => ro.disconnect()
+	})
+
+	// Effet 2 : reset stickBottom + scroll à chaque changement de conversation.
+	// Lance plusieurs scrolls successifs en rAF + setTimeout pour absorber les
+	// délais de rendu (mount, hydration, déchiffrement initial).
+	$effect(() => {
+		// dépendance explicite sur conversationId : se relance quand on
+		// change de DM via la sidebar (ce qui re-render le contenu).
+		conversationId
+		stickBottom = true
+		if (!messagesEl) return
+		const el = messagesEl
+		const stick = () => { if (stickBottom) el.scrollTop = el.scrollHeight }
+		// Cascade de scrolls : immédiat, après 1 rAF, après tick browser, et
+		// 3 tirs de sécurité jusqu'à 400ms pour les late layouts (E2E, images).
+		stick()
+		requestAnimationFrame(stick)
+		const t1 = setTimeout(stick, 50)
+		const t2 = setTimeout(stick, 200)
+		const t3 = setTimeout(stick, 400)
+		return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
+	})
+
+	// Effet 3 : à chaque ajout/modif de message, si on suit le bas, on scroll.
+	// La dépendance sur messages.length déclenche le re-scroll même si le
+	// ResizeObserver n'a pas encore réagi (sécurité supplémentaire).
+	$effect(() => {
+		messages.length
+		if (!stickBottom || !messagesEl) return
+		const el = messagesEl
+		requestAnimationFrame(() => {
+			if (stickBottom) el.scrollTop = el.scrollHeight
+		})
+	})
 
 	async function loadMore() {
 		if (loadingMore || !hasMore || messages.length === 0) return
