@@ -524,6 +524,24 @@
 	// de vie). Le `if (stickBottom)` à l'intérieur de chaque effet garantit
 	// qu'on ne perturbe jamais un user qui lit le passé.
 
+	// Effet 0 : inhiber le scroll de la fenêtre (body + html) tant que le DM
+	// est monté. Le +layout global a min-h-screen sur sa racine + un <main>
+	// avec h-full overflow-y-auto, ce qui crée une deuxième scrollbar de
+	// fenêtre quand le DM rentre dans le viewport mais que le main pense
+	// avoir une hauteur géante. En bloquant le scroll fenêtre, seul le
+	// messagesEl interne scrolle, plus de scrollbars concurrentes.
+	$effect(() => {
+		if (typeof document === 'undefined') return
+		const savedBody = document.body.style.overflow
+		const savedHtml = document.documentElement.style.overflow
+		document.body.style.overflow = 'hidden'
+		document.documentElement.style.overflow = 'hidden'
+		return () => {
+			document.body.style.overflow = savedBody
+			document.documentElement.style.overflow = savedHtml
+		}
+	})
+
 	// Effet 1 : ResizeObserver sur le inner. Capte TOUS les changements de
 	// hauteur asynchrones (fonts, images, déchiffrement E2E, nouveaux messages
 	// arrivant via socket). Se ré-attache si messagesInnerEl change de réf.
