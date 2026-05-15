@@ -12,7 +12,13 @@ import { db } from '../config/database'
 import { io } from '../socket/io'
 
 const UPLOADS_DIR  = path.join(process.cwd(), 'uploads')
-const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const ALLOWED_MIME = [
+  'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+  // Audio mémo (DM, social posts) : on accepte les formats que MediaRecorder
+  // produit par défaut + ce que les browsers savent jouer en <audio>.
+  'audio/webm', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/wav',
+]
+const AUDIO_MIME_PREFIX = 'audio/'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -347,17 +353,31 @@ export default async function socialRoutes(app: FastifyInstance) {
     const buf = await data.toBuffer()
     if (buf.length > 8 * 1024 * 1024) return reply.code(400).send({ error: 'Fichier trop lourd (max 8 Mo)' })
 
-    const isGif = data.mimetype === 'image/gif'
-    const ext   = isGif ? 'gif' : 'webp'
+    const isAudio = data.mimetype.startsWith(AUDIO_MIME_PREFIX)
+    const isGif   = data.mimetype === 'image/gif'
+
+    let ext: string
+    if (isAudio) {
+      ext = data.mimetype === 'audio/mpeg' ? 'mp3'
+          : data.mimetype === 'audio/mp4'  ? 'm4a'
+          : data.mimetype === 'audio/wav'  ? 'wav'
+          : data.mimetype === 'audio/ogg'  ? 'ogg'
+          : 'webm'  // audio/webm par défaut (MediaRecorder)
+    } else {
+      ext = isGif ? 'gif' : 'webp'
+    }
+
     const fname = `${randomUUID()}.${ext}`
     const dir   = path.join(UPLOADS_DIR, 'posts')
     mkdirSync(dir, { recursive: true })
 
-    const final = isGif
-      ? buf
-      : await sharp(buf).resize(1200, 1200, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 85 }).toBuffer()
+    const final = isAudio
+      ? buf  // pas de transcodage audio (pas de ffmpeg en deps), on stocke tel quel
+      : isGif
+        ? buf
+        : await sharp(buf).resize(1200, 1200, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 85 }).toBuffer()
 
     await writeFile(path.join(dir, fname), final)
-    return reply.send({ url: `/uploads/posts/${fname}` })
+    return reply.send({ url: `/uploads/posts/${fname}`, kind: isAudio ? 'audio' : 'image' })
   })
 }

@@ -11,6 +11,7 @@
 	import ReactionTooltip from '$lib/components/ReactionTooltip.svelte'
 	import EmojiPicker from '$lib/components/EmojiPicker.svelte'
 	import MessageBody from '$lib/components/MessageBody.svelte'
+	import AudioRecorder from '$lib/components/AudioRecorder.svelte'
 
 	const tFn = $derived($t)
 
@@ -1595,6 +1596,16 @@
 			{/if}
 			<div class="flex items-end gap-3 bg-white/[0.04] border border-white/[0.07] rounded-2xl px-4 py-3
 						focus-within:border-indigo-500/35 focus-within:bg-indigo-500/[0.04] transition-all duration-200">
+				<!-- Mémo audio (signature Nodyx) -->
+				<div class="shrink-0">
+					<AudioRecorder
+						token={data.token}
+						onsend={(url) => {
+							messageInput = messageInput.trim() ? `${messageInput.trim()}\n${url}` : url
+							tick().then(sendMessage)
+						}}
+					/>
+				</div>
 				<!-- Bouton emoji picker (Layer 3) — insère à la position du curseur -->
 				<div class="relative shrink-0">
 					<button

@@ -23,11 +23,15 @@
 	// Détecte les URL d'image (extensions courantes + uploads internes Nodyx).
 	// Les images internes sont sûres, on les render inline sans warning.
 	const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|svg|avif)(\?.*)?(#.*)?$/i
+	const AUDIO_EXT_RE = /\.(webm|m4a|ogg|mp3|wav)(\?.*)?(#.*)?$/i
 	function isImageUrl(url: string): boolean {
 		if (IMAGE_EXT_RE.test(url)) return true
-		// /uploads/posts/{uuid}.webp etc (path interne sans extension dans la regex)
-		if (url.startsWith('/uploads/') || url.includes('/uploads/posts/')) return true
+		// Path interne /uploads/... : sûr ET probablement image SAUF si audio
+		if ((url.startsWith('/uploads/') || url.includes('/uploads/posts/')) && !AUDIO_EXT_RE.test(url)) return true
 		return false
+	}
+	function isAudioUrl(url: string): boolean {
+		return AUDIO_EXT_RE.test(url)
 	}
 
 	function onLinkClick(e: MouseEvent, url: string) {
@@ -58,6 +62,15 @@
 			>
 				<img src={seg.href} alt="" class="message-body__image" loading="lazy" />
 			</a>
+		{:else if seg.type === 'url' && isAudioUrl(seg.href)}
+			<span class="message-body__audio-wrap">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="message-body__audio-icon" aria-hidden="true">
+					<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+					<path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+					<line x1="12" y1="19" x2="12" y2="23"/>
+				</svg>
+				<audio src={seg.href} controls preload="metadata" class="message-body__audio"></audio>
+			</span>
 		{:else if seg.type === 'url'}
 			<a
 				href={seg.href}
@@ -119,5 +132,27 @@
 		object-fit: cover;
 		border-radius: 10px;
 		background: rgba(255, 255, 255, 0.04);
+	}
+
+	.message-body__audio-wrap {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 10px;
+		margin: 4px 0;
+		background: rgba(99, 102, 241, 0.06);
+		border: 1px solid rgba(99, 102, 241, 0.18);
+		border-radius: 999px;
+		max-width: 100%;
+	}
+	.message-body__audio-icon {
+		width: 14px;
+		height: 14px;
+		color: #a5b4fc;
+		flex-shrink: 0;
+	}
+	.message-body__audio {
+		height: 32px;
+		max-width: 280px;
 	}
 </style>
