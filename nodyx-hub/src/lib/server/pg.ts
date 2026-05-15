@@ -1,4 +1,6 @@
 import pg from 'pg';
+import { lookup } from 'dns/promises';
+import { lookupIp } from './geo.js';
 
 const { Pool } = pg;
 
@@ -82,38 +84,96 @@ export async function unarchiveInstance(id: number): Promise<void> {
   );
 }
 
-// Ping actif depuis Olympus vers une instance enregistrée : si elle répond
-// à GET /api/v1/instance/info en 200 avec un JSON valide, on met à jour
-// last_seen + version + members/online. Utile quand le scheduler côté
-// instance ne tourne plus (vieille version, scheduler planté) mais que
-// l'instance elle-même répond aux requêtes.
-export async function pingInstance(id: number): Promise<{ ok: true; version: string | null; members: number; online: number } | { ok: false; error: string }> {
+// Ping actif depuis Olympus : fetch instance info + DNS lookup + geoip.
+// Met à jour last_seen, version, members, online, ET aussi ip + lat + lng +
+// geo_city + country quand on peut les résoudre. Au passage, désarchive
+// si elle l'était (auto-revival).
+export async function pingInstance(id: number): Promise<{ ok: true; version: string | null; members: number; online: number; geo: { ip: string; city: string; country: string } | null } | { ok: false; error: string }> {
   const pool = getPool();
   const { rows: [inst] } = await pool.query<{ url: string }>(
     `SELECT url FROM directory_instances WHERE id = $1`, [id]
   );
   if (!inst) return { ok: false, error: 'Instance introuvable' };
   try {
+    // 1. Health check : l'instance répond-elle ?
     const res = await fetch(`${inst.url}/api/v1/instance/info`, {
       signal: AbortSignal.timeout(5000),
       headers: { 'User-Agent': 'Olympus-Hub/1.0' },
     });
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const data = await res.json() as { version?: string; member_count?: number; online_count?: number };
+
+    // 2. Geo : DNS lookup du hostname → IP → geoip.
+    //    Si le DNS échoue ou geoip ne sait pas, on garde les valeurs DB
+    //    existantes via COALESCE.
+    let geo: { ip: string; city: string; country: string; lat: number; lng: number } | null = null;
+    try {
+      const host = new URL(inst.url).hostname;
+      // Famille 0 = let dns choose, mais on préfère IPv4 (geoip-lite plus
+      // précis sur IPv4 en général). Fallback IPv6 si pas d'IPv4.
+      let address: string;
+      try {
+        const r = await lookup(host, { family: 4 });
+        address = r.address;
+      } catch {
+        const r = await lookup(host, { family: 6 });
+        address = r.address;
+      }
+      const g = lookupIp(address);
+      if (g) {
+        geo = { ip: address, city: g.city, country: g.country, lat: g.lat, lng: g.lng };
+      }
+    } catch { /* DNS échoué : on ne touche pas aux champs geo en DB */ }
+
     await pool.query(
       `UPDATE directory_instances
-       SET last_seen = NOW(),
-           version   = COALESCE($2, version),
-           members   = COALESCE($3, members),
-           online    = COALESCE($4, online),
+       SET last_seen   = NOW(),
+           version     = COALESCE($2, version),
+           members     = COALESCE($3, members),
+           online      = COALESCE($4, online),
+           ip          = COALESCE($5::inet, ip),
+           lat         = COALESCE($6, lat),
+           lng         = COALESCE($7, lng),
+           geo_city    = COALESCE(NULLIF($8, ''), geo_city),
+           country     = COALESCE(NULLIF($9, ''), country),
            archived_at = NULL
        WHERE id = $1`,
-      [id, data.version ?? null, data.member_count ?? null, data.online_count ?? null]
+      [
+        id,
+        data.version ?? null, data.member_count ?? null, data.online_count ?? null,
+        geo?.ip ?? null, geo?.lat ?? null, geo?.lng ?? null,
+        geo?.city ?? null, geo?.country ?? null,
+      ]
     );
-    return { ok: true, version: data.version ?? null, members: data.member_count ?? 0, online: data.online_count ?? 0 };
+    return {
+      ok: true,
+      version: data.version ?? null,
+      members: data.member_count ?? 0,
+      online:  data.online_count ?? 0,
+      geo:     geo ? { ip: geo.ip, city: geo.city, country: geo.country } : null,
+    };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'unknown' };
   }
+}
+
+// Batch : ping toutes les instances non archivées qui n'ont PAS de lat/lng.
+// Useful pour rattraper le legacy (anciennes instances sans IP/coords).
+// Sérialisé pour éviter de saturer DNS + le réseau.
+export async function geolocateAllMissing(): Promise<{ total: number; updated: number; failed: number }> {
+  const pool = getPool();
+  const { rows } = await pool.query<{ id: number }>(
+    `SELECT id FROM directory_instances
+     WHERE archived_at IS NULL AND (lat IS NULL OR lng IS NULL)
+     ORDER BY id`
+  );
+  let updated = 0, failed = 0;
+  for (const r of rows) {
+    const res = await pingInstance(r.id);
+    if (res.ok && res.geo) updated++;
+    else failed++;
+  }
+  return { total: rows.length, updated, failed };
 }
 
 export async function blockInstance(id: number, reason: string): Promise<void> {

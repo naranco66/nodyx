@@ -1,5 +1,5 @@
 import type { PageServerLoad, Actions } from './$types';
-import { getAllInstances, archiveInactiveInstances, unarchiveInstance, pingInstance } from '$lib/server/pg.js';
+import { getAllInstances, archiveInactiveInstances, unarchiveInstance, pingInstance, geolocateAllMissing } from '$lib/server/pg.js';
 import { blockInstance, unblockInstance } from '$lib/server/pg.js';
 import { fail } from '@sveltejs/kit';
 
@@ -56,6 +56,14 @@ export const actions: Actions = {
     if (!id) return fail(400, { error: 'ID manquant' });
     const result = await pingInstance(id);
     if (!result.ok) return fail(502, { error: `Ping failed: ${result.error}` });
-    return { success: true, action: 'ping', version: result.version, members: result.members, online: result.online };
+    return { success: true, action: 'ping', version: result.version, members: result.members, online: result.online, geo: result.geo };
+  },
+
+  // Géolocalise en batch toutes les instances actives sans coordonnées.
+  // DNS resolve + geoip lookup + update. Sérialisé pour ne pas saturer
+  // (typiquement ~10-20 instances en quelques secondes).
+  geolocateAll: async () => {
+    const result = await geolocateAllMissing();
+    return { success: true, action: 'geolocate_all', total: result.total, updated: result.updated, failed: result.failed };
   },
 };

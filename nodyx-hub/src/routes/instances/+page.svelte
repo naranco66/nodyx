@@ -64,21 +64,37 @@
         {activeInstances.length} actives · {archivedInstances.length} archivées · {activeInstances.filter(i=>i.status==='banned').length} bannies
       </p>
     </div>
-    <button
-      type="button"
-      onclick={() => { archiveModal = { days: 30, preview: archivableCount } }}
-      disabled={archivableCount === 0}
-      style="
-        padding:0.5rem 0.9rem;border-radius:6px;font-size:0.8rem;font-weight:600;cursor:pointer;
-        background:{archivableCount > 0 ? 'rgba(245,158,11,0.15)' : 'rgba(15,20,40,0.4)'};
-        color:{archivableCount > 0 ? '#fbbf24' : '#475569'};
-        border:1px solid {archivableCount > 0 ? 'rgba(245,158,11,0.35)' : 'rgba(56,78,180,0.15)'};
-        transition:all 0.15s;
-      "
-      title="Archive les instances qui n'ont pas pingé depuis 30 jours"
-    >
-      📦 Archiver les inactives ({archivableCount})
-    </button>
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+      <form method="POST" action="?/geolocateAll" use:enhance>
+        <button
+          type="submit"
+          style="
+            padding:0.5rem 0.9rem;border-radius:6px;font-size:0.8rem;font-weight:600;cursor:pointer;
+            background:rgba(59,130,246,0.12);color:#93c5fd;
+            border:1px solid rgba(59,130,246,0.3);
+            transition:all 0.15s;
+          "
+          title="Pour chaque instance sans coordonnées : DNS lookup + geoip + persiste les coords"
+        >
+          🌍 Géolocaliser les manquantes ({activeInstances.filter(i => !i.lat || !i.lng).length})
+        </button>
+      </form>
+      <button
+        type="button"
+        onclick={() => { archiveModal = { days: 30, preview: archivableCount } }}
+        disabled={archivableCount === 0}
+        style="
+          padding:0.5rem 0.9rem;border-radius:6px;font-size:0.8rem;font-weight:600;cursor:pointer;
+          background:{archivableCount > 0 ? 'rgba(245,158,11,0.15)' : 'rgba(15,20,40,0.4)'};
+          color:{archivableCount > 0 ? '#fbbf24' : '#475569'};
+          border:1px solid {archivableCount > 0 ? 'rgba(245,158,11,0.35)' : 'rgba(56,78,180,0.15)'};
+          transition:all 0.15s;
+        "
+        title="Archive les instances qui n'ont pas pingé depuis 30 jours"
+      >
+        📦 Archiver les inactives ({archivableCount})
+      </button>
+    </div>
   </div>
 
   {#if form?.error}
