@@ -552,19 +552,56 @@ export default async function adminRoutes(app: FastifyInstance) {
   })
 
   // POST /api/v1/admin/email-bans
+  // Garde-fou : on refuse de bannir un domain mainstream (gmail.com, outlook.com,
+  // etc.) sans force=true explicite. Bannir le domain entier flinguerait tous
+  // les comptes légitimes sur ce provider — c'est une erreur facile à faire
+  // depuis le formulaire admin, on protège l'admin contre lui-même.
   app.post('/email-bans', {
     preHandler: [rateLimit, adminOnly],
   }, async (request, reply) => {
     const adminUser = (request as any).user as { userId: string }
-    const body = (request.body ?? {}) as { email: string; reason?: string }
+    const body = (request.body ?? {}) as { email: string; reason?: string; force?: boolean }
     if (!body.email) return reply.code(400).send({ error: 'email required' })
+
+    const normalized = body.email.trim().toLowerCase()
+
+    // Liste de domains email mainstream à protéger contre un ban accidentel.
+    // Tout admin qui veut RÉELLEMENT bannir un de ces domains doit passer
+    // force=true (ou utiliser SQL direct, mais ce sera audit-loggé).
+    const MAINSTREAM_DOMAINS = new Set([
+      // Webmail grand public
+      'gmail.com', 'googlemail.com',
+      'outlook.com', 'outlook.fr', 'hotmail.com', 'hotmail.fr', 'live.com', 'live.fr', 'msn.com',
+      'yahoo.com', 'yahoo.fr', 'ymail.com',
+      'icloud.com', 'me.com', 'mac.com',
+      'proton.me', 'protonmail.com', 'pm.me', 'tutanota.com',
+      'aol.com', 'gmx.com', 'gmx.fr', 'mail.com', 'zoho.com',
+      // ISP français
+      'free.fr', 'orange.fr', 'sfr.fr', 'laposte.net', 'wanadoo.fr', 'club-internet.fr',
+      'bbox.fr', 'numericable.fr', 'neuf.fr',
+      // Education FR (pas exhaustif)
+      'etu.univ-paris.fr',
+    ])
+
+    // Si l'input ressemble à un domain (pas de @), on check directement.
+    // Si c'est un email complet, on extrait le domain et on check pour info
+    // mais on n'empêche PAS le ban (c'est le but de bannir un email exact).
+    const isDomainOnly = !normalized.includes('@')
+    if (isDomainOnly && MAINSTREAM_DOMAINS.has(normalized) && !body.force) {
+      return reply.code(409).send({
+        error:    `Le domaine "${normalized}" est un service email mainstream. Bannir ce domaine bloquerait tous les comptes légitimes l'utilisant. Si tu es SÛR, renvoie la requête avec force=true.`,
+        code:     'MAINSTREAM_DOMAIN_GUARD',
+        domain:   normalized,
+      })
+    }
+
     await db.query(
       `INSERT INTO email_bans (email, reason, banned_by)
        VALUES ($1, $2, $3)
        ON CONFLICT (email) DO UPDATE SET reason = EXCLUDED.reason, banned_by = EXCLUDED.banned_by, banned_at = now()`,
-      [body.email, body.reason ?? null, adminUser.userId]
+      [normalized, body.reason ?? null, adminUser.userId]
     )
-    logAction(adminUser.userId, 'email_ban_add', 'email', body.email, body.email, { reason: body.reason })
+    logAction(adminUser.userId, 'email_ban_add', 'email', normalized, normalized, { reason: body.reason, force: body.force ?? false })
     return reply.send({ ok: true })
   })
 
