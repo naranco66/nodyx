@@ -783,6 +783,71 @@
 		typingTimeout = setTimeout(() => { typingTimeout = null }, 2000)
 	}
 
+	// ── Drag & drop image dans la conv ───────────────────────────────────────
+	let isDraggingFile = $state(false)
+	let uploading = $state(false)
+
+	function onDragEnter(e: DragEvent) {
+		if (!e.dataTransfer?.types?.includes('Files')) return
+		e.preventDefault()
+		isDraggingFile = true
+	}
+	function onDragLeave(e: DragEvent) {
+		// Le dragleave se déclenche aussi en entrant sur un enfant : on ne
+		// désactive que si on quitte vraiment le conteneur (relatedTarget hors).
+		if (e.relatedTarget && (e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) return
+		isDraggingFile = false
+	}
+	function onDragOver(e: DragEvent) {
+		if (!e.dataTransfer?.types?.includes('Files')) return
+		e.preventDefault()
+		e.dataTransfer.dropEffect = 'copy'
+	}
+	async function onDrop(e: DragEvent) {
+		e.preventDefault()
+		isDraggingFile = false
+		const file = e.dataTransfer?.files?.[0]
+		if (!file) return
+		await uploadAndInsert(file)
+	}
+
+	async function uploadAndInsert(file: File) {
+		if (uploading) return
+		if (!file.type.startsWith('image/')) {
+			console.warn('[dm:upload] type non supporté:', file.type)
+			return
+		}
+		if (file.size > 8 * 1024 * 1024) {
+			console.warn('[dm:upload] fichier trop lourd (>8 Mo)')
+			return
+		}
+		uploading = true
+		try {
+			const form = new FormData()
+			form.append('file', file, file.name)
+			const res = await apiFetch(fetch, '/social/upload', {
+				method:  'POST',
+				body:    form,
+				headers: { Authorization: `Bearer ${data.token}` },
+			})
+			if (!res.ok) {
+				console.error('[dm:upload] échec', res.status)
+				return
+			}
+			const { url } = await res.json() as { url: string }
+			// Insère l'URL dans la textarea (à la fin si déjà du texte, sinon
+			// tout seul). MessageBody la rendra inline comme <img> au envoi.
+			messageInput = messageInput.trim()
+				? `${messageInput.trim()}\n${url}`
+				: url
+			tick().then(() => messageTextareaEl?.focus())
+		} catch (err) {
+			console.error('[dm:upload] error', err)
+		} finally {
+			uploading = false
+		}
+	}
+
 	// Reply / quote : message en cours de citation, ou null si rien à citer
 	let replyingTo = $state<DmMessage | null>(null)
 	function startReply(msg: DmMessage) {
@@ -933,7 +998,25 @@
 <!-- height ajusté dynamiquement via $effect : viewport - top du DM root, pour
      que le header global Nodyx reste visible et que la zone de saisie ne
      déborde pas par le bas. -->
-<div bind:this={dmRootEl} class="flex bg-gray-950/20 min-h-0">
+<div bind:this={dmRootEl} class="flex bg-gray-950/20 min-h-0 relative"
+     ondragenter={onDragEnter}
+     ondragover={onDragOver}
+     ondragleave={onDragLeave}
+     ondrop={onDrop}>
+
+	{#if isDraggingFile}
+		<div class="dm-drop-overlay">
+			<div class="dm-drop-card">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="dm-drop-icon">
+					<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+					<polyline points="17 8 12 3 7 8"/>
+					<line x1="12" y1="3" x2="12" y2="15"/>
+				</svg>
+				<div class="dm-drop-title">Déposez votre image</div>
+				<div class="dm-drop-hint">JPG, PNG, WebP, GIF · max 8 Mo</div>
+			</div>
+		</div>
+	{/if}
 
 	<!-- ── Sidebar conversations ──────────────────────────────────────────── -->
 	<aside class="hidden sm:flex flex-col w-72 shrink-0 border-r border-white/[0.06] bg-gray-950/60">
@@ -1567,6 +1650,51 @@
 </div>
 
 <style>
+/* ── Drag & drop image overlay ────────────────────────────────────────────── */
+.dm-drop-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 60;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(99, 102, 241, 0.18);
+	backdrop-filter: blur(6px);
+	-webkit-backdrop-filter: blur(6px);
+	pointer-events: none;
+	animation: dm-drop-in .15s ease-out;
+}
+@keyframes dm-drop-in {
+	from { opacity: 0; }
+	to   { opacity: 1; }
+}
+.dm-drop-card {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	padding: 32px 48px;
+	background: rgba(15, 15, 22, 0.85);
+	border: 2px dashed rgba(124, 58, 237, 0.6);
+	border-radius: 14px;
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.dm-drop-icon {
+	width: 56px;
+	height: 56px;
+	color: #c4b5fd;
+}
+.dm-drop-title {
+	font-size: 18px;
+	font-weight: 700;
+	color: #f1f5f9;
+	font-family: 'Space Grotesk', sans-serif;
+}
+.dm-drop-hint {
+	font-size: 12px;
+	color: rgba(226, 232, 240, 0.5);
+}
+
 /* ── Reply / quote inline ─────────────────────────────────────────────────── */
 .dm-quote {
 	display: flex;
