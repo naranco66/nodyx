@@ -2,9 +2,13 @@ import type { RequestHandler } from './$types';
 import { createReadStream, statSync, existsSync } from 'fs';
 import { Readable } from 'stream';
 
+// Les logs PM2 du user 'nodyx' (pas root) — depuis qu'on a migré PM2 sous
+// nodyx en prod (cf memory/feedback_pm2_deux_instances.md). Les anciens
+// fichiers /root/.pm2/logs/* existent encore mais ne sont plus alimentés
+// depuis fin mars 2026, d'où la page logs Olympus qui restait vide.
 const LOG_PATHS: Record<string, string> = {
-  'nodyx-core':     '/root/.pm2/logs/nodyx-core-out.log',
-  'nodyx-frontend': '/root/.pm2/logs/nodyx-frontend-out.log',
+  'nodyx-core':     '/home/nodyx/.pm2/logs/nodyx-core-out.log',
+  'nodyx-frontend': '/home/nodyx/.pm2/logs/nodyx-frontend-out.log',
 };
 
 function detectLevel(line: string): 'info'|'warn'|'error' {
