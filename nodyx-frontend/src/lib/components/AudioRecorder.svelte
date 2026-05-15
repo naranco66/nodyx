@@ -26,7 +26,7 @@
 	const MAX_DURATION_S = 60
 
 	// État de la machine : idle → recording → preview → uploading
-	let state = $state<'idle' | 'recording' | 'preview' | 'uploading'>('idle')
+	let phase = $state<'idle' | 'recording' | 'preview' | 'uploading'>('idle')
 	let elapsed = $state(0)              // secondes
 	let levels  = $state<number[]>([0,0,0,0,0])  // 5 barres 0..1
 	let previewUrl = $state<string | null>(null)
@@ -92,7 +92,7 @@
 			if (elapsed >= MAX_DURATION_S) stop()
 		}, 1000)
 
-		state = 'recording'
+		phase = 'recording'
 	}
 
 	function tickVisualizer() {
@@ -132,7 +132,7 @@
 		const blob = new Blob(chunks, { type: recordedMime })
 		recordedBlob = blob
 		previewUrl = URL.createObjectURL(blob)
-		state = 'preview'
+		phase = 'preview'
 	}
 
 	function cancel() {
@@ -145,12 +145,12 @@
 		previewUrl = null
 		recordedBlob = null
 		elapsed = 0
-		state = 'idle'
+		phase = 'idle'
 	}
 
 	async function send() {
 		if (!recordedBlob || !token) return
-		state = 'uploading'
+		phase = 'uploading'
 		try {
 			const ext = recordedMime.includes('mp4') ? 'm4a'
 			          : recordedMime.includes('ogg') ? 'ogg'
@@ -164,7 +164,7 @@
 			})
 			if (!res.ok) {
 				console.error('[AudioRecorder] upload failed', res.status)
-				state = 'preview'
+				phase = 'preview'
 				return
 			}
 			const { url } = await res.json() as { url: string }
@@ -173,10 +173,10 @@
 			previewUrl = null
 			recordedBlob = null
 			elapsed = 0
-			state = 'idle'
+			phase = 'idle'
 		} catch (err) {
 			console.error('[AudioRecorder] send error', err)
-			state = 'preview'
+			phase = 'preview'
 		}
 	}
 
@@ -191,7 +191,7 @@
 	})
 </script>
 
-{#if state === 'idle'}
+{#if phase === 'idle'}
 	<button
 		type="button"
 		onclick={start}
@@ -206,7 +206,7 @@
 			<line x1="8" y1="23" x2="16" y2="23"/>
 		</svg>
 	</button>
-{:else if state === 'recording'}
+{:else if phase === 'recording'}
 	<div class="ar-recording">
 		<span class="ar-rec-dot" aria-hidden="true"></span>
 		<span class="ar-rec-timer">{fmt(elapsed)} / {fmt(MAX_DURATION_S)}</span>
@@ -224,7 +224,7 @@
 			</svg>
 		</button>
 	</div>
-{:else if state === 'preview' && previewUrl}
+{:else if phase === 'preview' && previewUrl}
 	<div class="ar-preview">
 		<audio src={previewUrl} controls class="ar-audio"></audio>
 		<button type="button" onclick={send} class="ar-btn-send" title="Envoyer ce mémo">
@@ -239,7 +239,7 @@
 			</svg>
 		</button>
 	</div>
-{:else if state === 'uploading'}
+{:else if phase === 'uploading'}
 	<div class="ar-uploading">
 		<span class="ar-spin"></span>
 		<span class="ar-uploading-label">Envoi…</span>
