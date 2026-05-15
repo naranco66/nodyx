@@ -532,6 +532,24 @@
 		const outer  = messagesEl
 		if (!inner || !outer) return
 		if (typeof ResizeObserver === 'undefined') return
+		// Debug : expose les éléments dans window pour inspection console
+		if (typeof window !== 'undefined') {
+			(window as any).__dmDebug = {
+				outer, inner,
+				probe: () => ({
+					outerScrollH: outer.scrollHeight,
+					outerClientH: outer.clientHeight,
+					outerScrollTop: outer.scrollTop,
+					outerOverflowY: getComputedStyle(outer).overflowY,
+					outerHeight: getComputedStyle(outer).height,
+					innerScrollH: inner.scrollHeight,
+					innerOffsetH: inner.offsetHeight,
+					stickBottom,
+					msgsLength: messages.length,
+				}),
+				forceScroll: () => { outer.scrollTop = outer.scrollHeight; return outer.scrollTop },
+			}
+		}
 		const ro = new ResizeObserver(() => {
 			if (stickBottom) outer.scrollTop = outer.scrollHeight
 		})
@@ -746,7 +764,7 @@
 </svelte:head>
 
 <!-- Layout deux colonnes : sidebar + zone chat -->
-<div class="flex h-full bg-gray-950/20">
+<div class="flex h-full min-h-0 bg-gray-950/20">
 
 	<!-- ── Sidebar conversations ──────────────────────────────────────────── -->
 	<aside class="hidden sm:flex flex-col w-72 shrink-0 border-r border-white/[0.06] bg-gray-950/60">
@@ -813,7 +831,12 @@
 	</aside>
 
 	<!-- ── Zone principale ───────────────────────────────────────────────── -->
-	<div class="flex-1 flex flex-col min-w-0">
+	<!-- min-h-0 CRITIQUE : sans ça, ce flex-item se laisse pousser par son
+	     contenu (height = auto) et l'overflow-y-auto du child #messagesEl
+	     n'a plus rien à scroller. Symptôme : scrollHeight == clientHeight.
+	     C'est le bug flexbox le plus connu, et c'est ce qui empêchait
+	     l'auto-scroll en bas de fonctionner depuis 3 tentatives. -->
+	<div class="flex-1 flex flex-col min-w-0 min-h-0">
 
 		<!-- Header conversation -->
 		<header class="shrink-0 flex items-center gap-3 px-5 py-3.5 border-b border-white/[0.06] bg-gray-950/40 backdrop-blur-sm">
@@ -1028,7 +1051,8 @@
 		<div
 			bind:this={messagesEl}
 			onscroll={onScroll}
-			class="flex-1 overflow-y-auto px-5 py-4"
+			data-dm-messages
+			class="flex-1 overflow-y-auto px-5 py-4 min-h-0"
 			style="scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.06) transparent"
 		>
 		<!-- Wrapper interne : c'est lui qu'on observe pour le ResizeObserver,
